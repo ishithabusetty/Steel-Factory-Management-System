@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Admin Login{% endblock %}
+
+{% block head %}
+<style>
+  .login-box {
+    max-width:420px;
+    margin:60px auto;
+    background:white;
+    padding:28px;
+    border-radius:14px;
+    box-shadow:var(--card-shadow);
+  }
+
+  .login-box h2 {
+    margin-top:0;
+    margin-bottom:20px;
+  }
+
+  .login-box label {
+    display:block;
+    margin-top:12px;
+    font-weight:600;
+  }
+
+  .login-actions {
+    display:flex;
+    gap:12px;
+    justify-content:flex-end;
+    margin-top:18px;
+  }
+
+  .btn.cancel {
+    background:#fff;
+    color:#2b2140;
+    border:1px solid rgba(120,92,255,0.2);
+    padding:8px 16px;
+    border-radius:8px;
+  }
+
+  .btn {
+    padding:8px 16px;
+    border-radius:8px;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="login-box">
+  <h2>Admin login</h2>
+
+  <form method="post">
+    <input type="hidden" name="next" value="{{ next }}">
+
+    <label>Username</label>
+    <input type="text" name="username" required>
+
+    <label>Password</label>
+    <input type="password" name="password" required>
+
+    <div class="login-actions">
+      <a class="btn cancel" href="{{ url_for('dashboard') }}">Cancel</a>
+      <button class="btn" type="submit">Sign in</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

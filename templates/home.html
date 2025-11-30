@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head><title>Steel Factory Dashboard</title></head>
+<body style="font-family:Arial; margin:40px;">
+<h1>🏭 Steel Factory Management System</h1>
+<hr><br>
+
+<ul>
+    <li><a href="/dashboard">📊 View Dashboard</a></li>
+
+    <li><a href="/machines">View Machines</a></li>
+    {% if is_admin %}
+        <li><a href="/add_machine">➕ Add Machine</a></li>
+    {% endif %}
+    <br>
+    <li><a href="/performance">View Performance Data</a></li>
+    {% if is_admin %}
+        <li><a href="/add_performance">➕ Add Performance Data</a></li>
+    {% endif %}
+    <br>
+    <li><a href="/blockchain">🔗 View Blockchain Ledger</a></li>
+</ul>
+
+<hr>
+{% if is_admin %}
+    <p>Logged in as admin • <a href="/logout">Logout</a></p>
+{% else %}
+    <p><a href="/login">Admin login</a></p>
+{% endif %}
+
+</body>
+</html>

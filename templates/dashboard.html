@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+
+{% block head %}
+<style>
+  .stats-row { display:flex; gap:18px; margin-bottom:18px; }
+  .stat { flex:1; padding:20px; background:#fff; border-radius:12px; text-align:center; box-shadow:var(--card-shadow); }
+
+  .charts { display:flex; gap:18px; margin-bottom:18px; }
+  .oee-box { flex:2; }
+  .pq-box { flex:1; }
+
+  .pq-box canvas { width:100%!important; aspect-ratio:1/1!important; }
+
+  .machine-health { width:100%; }
+
+  .two-col { display:flex; gap:18px; margin-top:18px; }
+  .two-col > div { flex:1; }
+
+  .lav-card {
+    background:linear-gradient(180deg,#faf8ff,#f3eefc);
+    padding:16px;
+    border-radius:14px;
+    border:1px solid rgba(140,120,200,0.12);
+  }
+
+  .machine-card {
+    background:white;
+    padding:18px;
+    border-radius:10px;
+    border:1px solid rgba(120,92,255,0.1);
+    margin-bottom:12px;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+  }
+
+  .machine-stats { display:flex; gap:26px; }
+  .machine-stat .big { font-weight:800; font-size:18px; color:var(--accent-dark); }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div class="stats-row">
+  <div class="stat"><div class="muted">Overall OEE</div><div id="factoryOee" class="num">--%</div><div id="factoryStatus" class="muted"></div></div>
+  <div class="stat"><div class="muted">Availability</div><div id="avail" class="num">--%</div></div>
+  <div class="stat"><div class="muted">Performance</div><div id="perf" class="num">--%</div></div>
+  <div class="stat"><div class="muted">Quality</div><div id="qual" class="num">--%</div></div>
+</div>
+
+<div class="charts">
+  <div class="card oee-box">
+    <h3>OEE Trend</h3>
+    <canvas id="oeeChart"></canvas>
+  </div>
+
+  <div class="card pq-box">
+    <h3>Production Quality</h3>
+    <canvas id="qualityChart"></canvas>
+    <div style="text-align:center;margin-top:10px">
+      <div id="qualityPercent" style="font-size:20px;font-weight:800">--%</div>
+      <div class="muted">Quality Rate</div>
+    </div>
+  </div>
+</div>
+
+<div class="card machine-health">
+  <h3>Machine Health Overview</h3>
+  <div id="machinesList"></div>
+</div>
+
+<div class="two-col">
+  <div class="lav-card">
+    <h3>Predictive Anomaly Detection</h3>
+    <div id="anomalyList"></div>
+  </div>
+
+  <div class="lav-card">
+    <h3>Recent Alerts</h3>
+    <div id="alertsList"></div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadDashboard(){
+  const r = await fetch('/dashboard_data'); 
+  const data = await r.json();
+
+  // top stats
+  factoryOee.innerText = data.factory_avg_oee + '%';
+  factoryStatus.innerText = data.factory_status.toUpperCase();
+  avail.innerText = (calcAvg(data.availability)) + '%';
+  perf.innerText = (calcAvg(data.performance)) + '%';
+  qual.innerText = (calcAvg(data.quality)) + '%';
+
+  // donut value
+  qualityPercent.innerText = ((data.good_units / Math.max(1,data.factory_total_units)) * 100).toFixed(2) + '%';
+
+  // OEE chart
+  if(window._oee) window._oee.destroy();
+  window._oee = new Chart(oeeChart.getContext('2d'), {
+    type:'line',
+    data:{ labels:data.oee_labels, datasets:[
+      {label:'OEE',data:data.oee_values,borderColor:'#1e90ff',fill:true,tension:0.3},
+      {label:'Availability',data:data.availability,borderColor:'#10B981',tension:0.3},
+      {label:'Performance',data:data.performance,borderColor:'#F59E0B',tension:0.3},
+      {label:'Quality',data:data.quality,borderColor:'#C084FC',tension:0.3}
+    ]},
+    options:{responsive:true}
+  });
+
+  // donut chart
+  if(window._q) window._q.destroy();
+  window._q = new Chart(qualityChart.getContext('2d'), {
+    type:'doughnut',
+    data:{labels:['Good','Defective'],datasets:[{data:[data.good_units,data.defective_units]}]},
+    options:{cutout:'60%'}
+  });
+
+  // Machine list (expanded box)
+  machinesList.innerHTML='';
+  data.machines_health.forEach(m=>{
+    const el=document.createElement('div');
+    el.className='machine-card';
+    el.innerHTML=`
+      <div>
+        <div style="font-weight:700">${m.name}</div>
+        <div class="muted">ID: ${m.id} • ${m.quality}% Quality</div>
+      </div>
+      <div class="machine-stats">
+        <div class="machine-stat"><div class="big">${m.oee}%</div><small class="muted">OEE</small></div>
+        <div class="machine-stat"><div class="big">${m.downtime}h</div><small class="muted">Downtime</small></div>
+        <div class="machine-stat"><div class="big">${m.quality}%</div><small class="muted">Quality</small></div>
+      </div>
+    `;
+    machinesList.appendChild(el);
+  });
+
+  // anomalies
+  anomalyList.innerHTML='';
+  data.anomalies.forEach(a=>{
+    const el=document.createElement('div');
+    el.className='list-item';
+    el.innerHTML=`<strong>${a.machine}</strong><div>${a.issue}</div><small>${a.recommendation}</small>`;
+    el.style.borderLeft="4px solid #F59E0B";
+    anomalyList.appendChild(el);
+  });
+
+  // alerts
+  alertsList.innerHTML='';
+  data.recent_alerts.forEach(a=>{
+    const el=document.createElement('div');
+    el.className='list-item';
+    el.innerHTML=`<strong>${a.machine}</strong><div>${a.message}</div><small>${a.time}</small>`;
+    alertsList.appendChild(el);
+  });
+}
+
+function calcAvg(arr){ let s=0,c=0; arr.forEach(v=>{if(typeof v==='number'){s+=v,c++;}}); return c?(s/c).toFixed(2):'--'; }
+
+loadDashboard();
+</script>
+{% endblock %}

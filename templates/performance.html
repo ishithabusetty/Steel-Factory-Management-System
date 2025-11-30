@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Performance{% endblock %}
+{% block content %}
+<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center">
+    <h2 style="margin:0">Performance Records</h2>
+    {% if is_admin %}<a class="btn" href="{{ url_for('add_performance') }}">➕ Add Performance</a>{% endif %}
+  </div>
+
+  <div style="margin-top:12px;overflow:auto">
+    <table class="table" style="width:100%;table-layout:fixed;">
+      <thead><tr><th>ID</th><th>Machine</th><th>Operating Time</th><th>Downtime</th><th>Actual</th><th>Ideal</th><th>Good</th><th>Total</th><th>OEE</th>{% if is_admin %}<th>Actions</th>{% endif %}</tr></thead>
+      <tbody>
+        {% for p in data %}
+        <tr>
+          <td>{{ p[0] }}</td>
+          <td>{{ p[1] }}</td>
+          <td>{{ p[2] }}</td>
+          <td>{{ p[3] }}</td>
+          <td>{{ p[4] }}</td>
+          <td>{{ p[5] }}</td>
+          <td>{{ p[6] }}</td>
+          <td>{{ p[7] }}</td>
+          <td>{{ '%.2f'|format(p[8] or 0) }}%</td>
+          {% if is_admin %}
+            <td><a class="btn small" href="{{ url_for('modify_performance', pid=p[0]) }}">Modify</a></td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

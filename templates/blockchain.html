@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Blockchain Ledger{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>Blockchain Ledger (read-only)</h2>
+  <div style="margin-top:12px;overflow:auto">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>BlockID</th>
+          <th>PerformanceID</th>
+          <th>Hash</th>
+          <th>PrevHash</th>
+          <th style="width:350px;">Data</th>
+          <th>Timestamp</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for b in blocks %}
+        <tr>
+          <td>{{ b[0] }}</td>
+          <td>{{ b[1] }}</td>
+          <td style="word-break:break-all">{{ b[2] }}</td>
+          <td style="word-break:break-all">{{ b[3] }}</td>
+          <td class="data-col">{{ b[4] }}</td>
+          <td>{{ b[5] }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Add Performance{% endblock %}
+{% block content %}
+<div class="card" style="max-width:800px;margin:auto">
+  <h2>Add Performance</h2>
+  <form method="post">
+    <label>Machine</label>
+    <select name="machine_id">
+      {% for m in machines %}
+        <option value="{{ m[0] }}">{{ m[1] }}</option>
+      {% endfor %}
+    </select>
+    <label>Operating time (hours)</label><input type="number" step="0.01" name="operating_time" required>
+    <label>Downtime (hours)</label><input type="number" step="0.01" name="downtime" required>
+    <label>Actual Output</label><input type="number" name="actual_output" required>
+    <label>Ideal Output</label><input type="number" name="ideal_output" required>
+    <label>Good Units</label><input type="number" name="good_units" required>
+    <label>Total Units</label><input type="number" name="total_units" required>
+    <div style="display:flex;gap:12px">
+      <button class="btn" type="submit">Save</button>
+      <a class="btn" href="{{ url_for('view_performance') }}">Back</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

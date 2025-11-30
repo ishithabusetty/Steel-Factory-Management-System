@@ -1,0 +1,131 @@
+:root{
+  --bg1: #f5f0fb; /* light lavender */
+  --bg2: #efe7fb;
+  --card: #ffffff;
+  --ivory: #fffdf7;
+  --muted: #6b6b75;
+  --primary: #2b4fa5; /* deep blue for chart lines */
+  --accent: #7a5fbf; /* lavender accent */
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --border: rgba(122,95,191,0.12);
+  --glass: rgba(255,255,255,0.7);
+  font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+}
+
+/* page background */
+body{
+  margin:0;
+  background: linear-gradient(180deg,var(--bg1),var(--bg2));
+  color:#1f1f28;
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+}
+
+/* header / navbar */
+.topbar{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:20px;
+  padding:20px 36px;
+  border-bottom:1px solid var(--border);
+  background: linear-gradient(90deg, rgba(255,255,255,0.6), rgba(255,255,255,0.45));
+  box-shadow: 0 6px 18px rgba(120,90,200,0.06);
+  position:sticky;
+  top:0;
+  z-index:40;
+  backdrop-filter: blur(6px);
+}
+
+.topbar-left{display:flex;align-items:center;gap:14px}
+.logo-emoji{font-size:34px; background:linear-gradient(90deg,#f7f2ff,#eae0ff); padding:8px;border-radius:8px}
+.app-title{font-weight:700;font-size:24px;color:#1f1f28}
+.app-sub{font-size:12px;color:var(--muted);margin-top:2px}
+
+.topnav{display:flex;gap:18px;align-items:center}
+.topnav a{color:#1f1f28;text-decoration:none;font-weight:600;padding:8px 12px;border-radius:8px}
+.topnav a:hover{background:rgba(122,95,191,0.06);}
+
+.topbar-right .admin-btn{
+  background:#fff;border-radius:9px;padding:8px 12px;border:1px solid var(--border);
+  text-decoration:none;color:#1f1f28;font-weight:700;
+}
+
+/* page container */
+.page-wrap{
+  max-width:1200px;
+  margin:26px auto;
+  padding:0 18px 60px;
+}
+
+/* cards */
+.card{
+  background: var(--card);
+  border-radius:14px;
+  padding:18px;
+  box-shadow: 0 6px 18px rgba(120,92,255,0.06);
+  border: 1px solid var(--border);
+}
+
+/* top stat row */
+.top-stats{
+  display:flex; gap:18px; align-items:stretch; margin-bottom:18px;
+}
+.stat-card{flex:1;padding:22px;border-radius:12px;background:var(--ivory);text-align:center;min-width:140px}
+.stat-card .muted{color:var(--muted);font-size:13px}
+.stat-card .big{font-size:28px;font-weight:800;margin-top:6px;color:#1f2937}
+
+/* layout helpers */
+.row{display:flex; gap:18px; align-items:flex-start}
+.col{flex:1}
+
+/* charts row */
+.charts{display:flex; gap:18px; align-items:stretch; margin-bottom:18px}
+.chart-left{flex:2}
+.chart-right{flex:1}
+
+/* Machine health landscape blocks */
+.machine-list{display:flex;flex-direction:column;gap:12px;margin-top:12px}
+.machine-block{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:18px;border-radius:12px;background:linear-gradient(180deg,#fff,#fbfaff);
+  border:1px solid rgba(122,95,191,0.06);
+  gap:10px;
+}
+.machine-left{display:flex;gap:14px;align-items:flex-start}
+.machine-meta{display:flex;flex-direction:column}
+.machine-name{font-weight:700}
+.machine-sub{color:var(--muted);font-size:13px;margin-top:3px}
+.machine-stats{display:flex;gap:30px;align-items:center;min-width:420px;justify-content:center}
+.machine-stat{ text-align:center }
+.machine-stat .big{ font-size:20px; font-weight:800; color:var(--primary) }
+.machine-stat .small{ color:var(--muted); font-size:12px; margin-top:6px }
+
+/* badge for status */
+.badge{
+  padding:6px 10px;border-radius:999px;font-weight:700;font-size:13px;background:linear-gradient(90deg,#fff,#fff);
+  border:1px solid var(--border)
+}
+.badge.healthy{ color: #0ea5a4; background: rgba(16,185,129,0.07)}
+.badge.warning{ color: #b45309; background: rgba(245,158,11,0.07)}
+.badge.critical{ color: #b91c1c; background: rgba(239,68,68,0.07)}
+
+/* right column list items */
+.list-item{
+  padding:12px;border-radius:10px;border:1px solid var(--border);background:linear-gradient(180deg,#fff,#fff);
+  display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;
+}
+.list-item .meta{display:flex;flex-direction:column}
+.list-item .severity{padding:6px 10px;border-radius:999px;font-weight:700}
+
+/* footer */
+.site-footer{max-width:1200px;margin:18px auto;color:var(--muted);padding:8px 18px;text-align:center}
+
+/* responsive */
+@media (max-width:980px){
+  .charts{flex-direction:column}
+  .top-stats{flex-direction:column}
+  .machine-stats{flex-wrap:wrap;justify-content:flex-start}
+}

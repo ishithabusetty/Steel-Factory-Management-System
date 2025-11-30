@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>{% block title %}Factory Management{% endblock %}</title>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  {% block head %}{% endblock %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-left">
+      <span class="logo-emoji">🏭</span>
+      <div>
+        <h1 class="site-title">Factory Management System</h1>
+        <div class="site-sub">OEE — Blockchain verified</div>
+      </div>
+    </div>
+
+    <nav class="topnav">
+      <a href="{{ url_for('dashboard') }}">Home</a>
+      <a href="{{ url_for('view_machines') }}">Machines</a>
+      <a href="{{ url_for('view_performance') }}">Performance</a>
+      <a href="{{ url_for('view_blockchain') }}">Blockchain</a>
+    </nav>
+
+    <div class="topbar-right">
+      {% if session.get('is_admin') %}
+        <a class="btn small" href="{{ url_for('logout') }}">Logout</a>
+      {% else %}
+        <a class="btn small" href="{{ url_for('login', next=request.path) }}">Admin login</a>
+      {% endif %}
+    </div>
+  </header>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for cat,msg in messages %}
+      <div class="flash-bar">{{ msg }}</div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  <main class="page">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="site-foot" style="max-width:1180px;margin:18px auto;padding:8px 22px;text-align:center;color:var(--muted)">
+    <small>© Factory Management • OEE & Blockchain</small>
+  </footer>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>
