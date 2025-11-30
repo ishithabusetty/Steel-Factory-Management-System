@@ -9,7 +9,6 @@
   .charts { display:flex; gap:18px; margin-bottom:18px; }
   .oee-box { flex:2; }
   .pq-box { flex:1; }
-
   .pq-box canvas { width:100%!important; aspect-ratio:1/1!important; }
 
   .machine-health { width:100%; }
@@ -37,6 +36,47 @@
 
   .machine-stats { display:flex; gap:26px; }
   .machine-stat .big { font-weight:800; font-size:18px; color:var(--accent-dark); }
+
+  .extra-box {
+    margin-top:18px;
+    background:linear-gradient(180deg,#faf8ff,#f3eefc);
+    padding:18px;
+    border-radius:14px;
+    border:1px solid rgba(140,120,200,0.12);
+  }
+
+  .list-item {
+    background:white;
+    padding:14px;
+    margin-bottom:12px;
+    border-radius:10px;
+    border:1px solid rgba(120,92,255,0.12);
+    position:relative;
+  }
+
+  .badge {
+    position:absolute;
+    right:14px;
+    top:14px;
+    padding:3px 10px;
+    font-size:11px;
+    border-radius:6px;
+    font-weight:700;
+    color:white;
+  }
+
+  .badge-high {
+    background:#ff6b6b;
+  }
+
+  .badge-medium {
+    background:#f4c542;
+  }
+
+  .score-bad {
+    color:#d7263d;
+    font-weight:700;
+  }
 </style>
 {% endblock %}
 
@@ -82,6 +122,11 @@
   </div>
 </div>
 
+<div class="extra-box">
+  <h3>Maintenance Log & Predicted Failures</h3>
+  <div id="extraList"></div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
@@ -97,10 +142,10 @@ async function loadDashboard(){
   perf.innerText = (calcAvg(data.performance)) + '%';
   qual.innerText = (calcAvg(data.quality)) + '%';
 
-  // donut value
+  // donut % 
   qualityPercent.innerText = ((data.good_units / Math.max(1,data.factory_total_units)) * 100).toFixed(2) + '%';
 
-  // OEE chart
+  // ---- Charts ----
   if(window._oee) window._oee.destroy();
   window._oee = new Chart(oeeChart.getContext('2d'), {
     type:'line',
@@ -113,7 +158,6 @@ async function loadDashboard(){
     options:{responsive:true}
   });
 
-  // donut chart
   if(window._q) window._q.destroy();
   window._q = new Chart(qualityChart.getContext('2d'), {
     type:'doughnut',
@@ -121,7 +165,7 @@ async function loadDashboard(){
     options:{cutout:'60%'}
   });
 
-  // Machine list (expanded box)
+  // ---- Machines ----
   machinesList.innerHTML='';
   data.machines_health.forEach(m=>{
     const el=document.createElement('div');
@@ -140,27 +184,74 @@ async function loadDashboard(){
     machinesList.appendChild(el);
   });
 
-  // anomalies
+  // ---- Predictive ML Anomalies ----
   anomalyList.innerHTML='';
-  data.anomalies.forEach(a=>{
+  data.ml_anomalies.forEach(a=>{
+    const sev = a.severity === "HIGH" ? "badge badge-high" : "badge badge-medium";
+
     const el=document.createElement('div');
     el.className='list-item';
-    el.innerHTML=`<strong>${a.machine}</strong><div>${a.issue}</div><small>${a.recommendation}</small>`;
+    el.innerHTML=`
+      <span class="${sev}">${a.severity}</span>
+      <strong>${a.machine}</strong>
+      <div>${a.issue}</div>
+      <small>${a.time}</small>
+    `;
     el.style.borderLeft="4px solid #F59E0B";
     anomalyList.appendChild(el);
   });
 
-  // alerts
+  // ---- Recent Alerts ----
   alertsList.innerHTML='';
   data.recent_alerts.forEach(a=>{
+    const sev = a.severity === "HIGH" ? "badge badge-high" : "badge badge-medium";
+
     const el=document.createElement('div');
     el.className='list-item';
-    el.innerHTML=`<strong>${a.machine}</strong><div>${a.message}</div><small>${a.time}</small>`;
+    el.innerHTML=`
+      <span class="${sev}">${a.severity}</span>
+      <strong>${a.machine}</strong>
+      <div>${a.message}</div>
+      <small>${a.time}</small>
+    `;
     alertsList.appendChild(el);
   });
+
+  // ---- Maintenance ----
+  extraList.innerHTML='';
+
+  // maintenance items
+  data.maintenance.forEach(m=>{
+    const el=document.createElement('div');
+    el.className='list-item';
+    el.innerHTML=`
+      <span class="badge badge-high">Attention</span>
+      <strong>${m.machine}</strong>
+      <div class="score-bad">${m.reason}</div>
+      <small>${m.date}</small>
+    `;
+    extraList.appendChild(el);
+  });
+
+  // ml anomalies also appear (but lighter styling)
+  data.ml_anomalies.forEach(m=>{
+    const el=document.createElement('div');
+    el.className='list-item';
+    el.innerHTML=`
+      <strong>${m.machine}</strong>
+      <div style="color:#6a0dad;font-weight:600">Score: ${m.score}</div>
+      <small>${m.time}</small>
+    `;
+    extraList.appendChild(el);
+  });
+
 }
 
-function calcAvg(arr){ let s=0,c=0; arr.forEach(v=>{if(typeof v==='number'){s+=v,c++;}}); return c?(s/c).toFixed(2):'--'; }
+function calcAvg(arr){
+  let s=0,c=0;
+  arr.forEach(v=>{ if(typeof v==='number') s+=v,c++; });
+  return c?(s/c).toFixed(2):'--';
+}
 
 loadDashboard();
 </script>

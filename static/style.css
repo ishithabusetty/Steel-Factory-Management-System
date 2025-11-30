@@ -156,3 +156,56 @@ button.btn, .btn.small { box-shadow:none !important; }
 
 /* Buttons equal sizing */
 .btn.small { padding:8px 14px !important; }
+
+.form-container {
+    background: white;
+    padding: 28px;
+    border-radius: 18px;
+    box-shadow: var(--card-shadow);
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+.form-container label {
+    display: block;
+    font-weight: 600;
+    margin-top: 12px;
+}
+
+.form-container input,
+.form-container select {
+    width: 100%;
+    margin-top: 6px;
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid #ccc;
+}
+
+.btn-row {
+    margin-top: 22px;
+    display: flex;
+    gap: 14px;
+}
+
+.primary-btn,
+.secondary-btn {
+    padding: 10px 22px;
+    border-radius: 8px;
+    text-decoration: none;
+    display: inline-block;
+    font-weight: 600;
+}
+
+..primary-btn {
+    background: #7b3fe4;   /* deep purple, visible on white */
+    color: white;
+    border: none;
+    box-shadow: 0 2px 6px rgba(123,63,228,0.25);
+}
+
+
+.secondary-btn {
+    background: #f3eefc;
+    color: #4a2f7c;
+    border: 1px solid #d1c8ff;
+}

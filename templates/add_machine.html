@@ -1,21 +1,31 @@
 {% extends "base.html" %}
 {% block title %}Add Machine{% endblock %}
+
 {% block content %}
-<div class="card" style="max-width:700px;margin:auto">
-  <h2>Add Machine</h2>
-  {% if message %}<div class="muted" style="color:var(--danger)">{{ message }}</div>{% endif %}
-  <form method="post">
-    <label>Name</label><input type="text" name="name" required>
-    <label>Type</label><input type="text" name="type" required>
-    <label>Location</label><input type="text" name="location" required>
-    <label>Status</label>
-    <select name="status">
-      <option>Active</option><option>Inactive</option>
-    </select>
-    <div style="display:flex;gap:12px">
-      <button class="btn" type="submit">Save</button>
-      <a class="btn" href="{{ url_for('view_machines') }}">Back</a>
-    </div>
-  </form>
+<div class="form-container">
+    <h2>Add Machine</h2>
+
+    <form method="POST">
+
+        <label>Machine Name</label>
+        <input type="text" name="name" required>
+
+        <label>Machine Type</label>
+        <input type="text" name="type" required>
+
+        <label>Location</label>
+        <input type="text" name="location" required>
+
+        <label>Status</label>
+        <select name="status">
+            <option value="Active">Active</option>
+            <option value="Inactive">Inactive</option>
+        </select>
+
+        <div class="btn-row">
+            <button type="submit" class="primary-btn">Save</button>
+            <a href="/machines" class="secondary-btn">Back</a>
+        </div>
+    </form>
 </div>
 {% endblock %}

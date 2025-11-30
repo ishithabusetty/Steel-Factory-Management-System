@@ -1,21 +1,39 @@
 {% extends "base.html" %}
 {% block title %}Modify Performance{% endblock %}
+
 {% block content %}
-<div class="card" style="max-width:800px;margin:auto">
-  <h2>Modify Performance</h2>
-  {% set d = data %}
-  <form method="post">
-    <label>Operating time</label><input type="number" step="0.01" name="operating_time" value="{{ d[2] }}" required>
-    <label>Downtime</label><input type="number" step="0.01" name="downtime" value="{{ d[3] }}" required>
-    <label>Actual Output</label><input type="number" name="actual_output" value="{{ d[4] }}" required>
-    <label>Ideal Output</label><input type="number" name="ideal_output" value="{{ d[5] }}" required>
-    <label>Good Units</label><input type="number" name="good_units" value="{{ d[6] }}" required>
-    <label>Total Units</label><input type="number" name="total_units" value="{{ d[7] }}" required>
-    <label>Override Password</label><input type="password" name="override_password" required>
-    <div style="display:flex;gap:12px">
-      <button class="btn" type="submit">Save</button>
-      <a class="btn" href="{{ url_for('view_performance') }}">Back</a>
-    </div>
-  </form>
+<div class="form-container">
+    <h2>Modify Performance</h2>
+
+    <form method="POST">
+
+        <label>Operating Time (hours)</label>
+        <input type="number" name="operating_time" step="0.01" value="{{ data[2] }}" required>
+
+        <label>Downtime (hours)</label>
+        <input type="number" name="downtime" step="0.01" value="{{ data[3] }}" required>
+
+        <label>Actual Output</label>
+        <input type="number" name="actual_output" value="{{ data[4] }}" required>
+
+        <label>Ideal Output</label>
+        <input type="number" name="ideal_output" value="{{ data[5] }}" required>
+
+        <label>Good Units</label>
+        <input type="number" name="good_units" value="{{ data[6] }}" required>
+
+        <label>Total Units</label>
+        <input type="number" name="total_units" value="{{ data[7] }}" required>
+
+        <label>Override Password</label>
+        <input type="password" name="override_password" required>
+
+        <div class="btn-row">
+            <button type="submit" class="primary-btn">Save</button>
+            <a href="/performance" class="secondary-btn">Back</a>
+        </div>
+    </form>
+
+    <p style="color:red;">{{ message }}</p>
 </div>
 {% endblock %}
