@@ -109,6 +109,23 @@
   <h3>Machine Health Overview</h3>
   <div id="machinesList"></div>
 </div>
+<div class="charts" style="margin-top:18px">
+  <div class="card" style="flex:1">
+    <h3>OEE Scatter Plot</h3>
+    <canvas id="scatterChart"></canvas>
+  </div>
+
+  <div class="card" style="flex:1">
+    <h3>Anomaly Heatmap</h3>
+    <canvas id="heatmapChart"></canvas>
+  </div>
+
+  <div class="card" style="flex:1">
+    <h3>Score Distribution</h3>
+    <canvas id="scoreChart"></canvas>
+  </div>
+</div>
+
 
 <div class="two-col">
   <div class="lav-card">
@@ -164,6 +181,76 @@ async function loadDashboard(){
     data:{labels:['Good','Defective'],datasets:[{data:[data.good_units,data.defective_units]}]},
     options:{cutout:'60%'}
   });
+  // -------- OEE Scatter Plot --------
+if(window._scatter) window._scatter.destroy();
+window._scatter = new Chart(scatterChart.getContext('2d'), {
+  type: 'scatter',
+  data: {
+    datasets: [{
+      label: "OEE vs Actual Output",
+      data: data.oee_labels.map((id, i) => ({
+        x: data.performance[i],
+        y: data.oee_values[i]
+      }))
+    }]
+  },
+  options: {
+    scales: {
+      x: { title: { display: true, text: "Performance (%)" }},
+      y: { title: { display: true, text: "OEE (%)" }}
+    }
+  }
+});
+// -------- Anomaly Heatmap (bubble plot) --------
+if(window._heatmap) window._heatmap.destroy();
+
+const bubbleData = data.ml_anomalies.map(a => ({
+  x: Math.random() * 100,
+  y: a.score * -100,          // convert negative scores to positive heat
+  r: a.severity === "HIGH" ? 15 : 8
+}));
+
+window._heatmap = new Chart(heatmapChart.getContext('2d'), {
+  type: 'bubble',
+  data: {
+    datasets: [{
+      label: "Anomaly Heatmap",
+      data: bubbleData,
+      backgroundColor: bubbleData.map(b =>
+        b.r > 10 ? "rgba(255, 99, 132, 0.6)" : "rgba(255, 205, 86, 0.6)"
+      )
+    }]
+  },
+  options: {
+    plugins: { legend: { display: false }},
+    scales: { x: { display:false }, y: { title: { text:"Severity (derived)" } }}
+  }
+});
+// -------- Anomaly Score Histogram --------
+if(window._scoreChart) window._scoreChart.destroy();
+
+const scores = data.ml_anomalies.map(x => x.score);
+
+window._scoreChart = new Chart(scoreChart.getContext('2d'), {
+  type: 'bar',
+  data: {
+    labels: scores.map((s,i)=>"A"+(i+1)),
+    datasets: [{
+      label: "Anomaly Score",
+      data: scores,
+      backgroundColor: scores.map(s =>
+        s < -0.25 ? "rgba(255,99,132,0.7)" : "rgba(255,205,86,0.7)"
+      )
+    }]
+  },
+  options: {
+    scales: {
+      y: { title: { display: true, text:"Score" }},
+      x: { title: { display: true, text:"Anomalies" }}
+    }
+  }
+});
+
 
   // ---- Machines ----
   machinesList.innerHTML='';

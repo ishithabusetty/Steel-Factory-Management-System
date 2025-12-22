@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BCNF Database Schema</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .page {
+            background-color: white;
+            width: 210mm;
+            min-height: 297mm;
+            padding: 20mm;
+            margin: 0 auto 20px auto;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            page-break-after: always;
+        }
+        .header {
+            background-color: #f0f0f0;
+            border: 2px solid #000;
+            padding: 10px;
+            text-align: center;
+            font-weight: bold;
+            font-size: 16px;
+            margin-bottom: 15px;
+        }
+        .table-container {
+            margin-bottom: 35px;
+        }
+        .table-header {
+            background-color: #e8e8e8;
+            border: 1px solid #000;
+            padding: 5px 10px;
+            font-weight: bold;
+            font-size: 12px;
+        }
+        .table-new {
+            background-color: #ffe6e6;
+        }
+        .table-new-header {
+            color: #cc0000;
+        }
+        .table-content {
+            border: 1px solid #000;
+            border-top: none;
+            padding: 4px 8px;
+            font-size: 10px;
+            display: flex;
+            flex-wrap: nowrap;
+            gap: 18px;
+            align-items: center;
+        }
+        .attribute {
+            white-space: nowrap;
+        }
+        .pk {
+            font-weight: bold;
+            text-decoration: underline;
+        }
+        @media print {
+            body {
+                margin: 0;
+                background-color: white;
+            }
+            .page {
+                margin: 0;
+                box-shadow: none;
+                page-break-after: always;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+<!-- PAGE 1 -->
+<div class="page">
+    <div class="header">BCNF – Factory Monitoring & Predictive Maintenance System</div>
+
+    <div class="table-container">
+        <div class="table-header">MACHINE</div>
+        <div class="table-content">
+            <span class="attribute pk">MachineID</span>
+            <span class="attribute">MachineName</span>
+            <span class="attribute">Location</span>
+            <span class="attribute">Status</span>
+            <span class="attribute">InstallationDate</span>
+        </div>
+    </div>
+
+    <div class="table-container">
+        <div class="table-header">LOCATION_UNIT</div>
+        <div class="table-content">
+            <span class="attribute pk">Location</span>
+            <span class="attribute">Campus</span>
+            <span class="attribute">Building</span>
+            <span class="attribute">ControlUnit</span>
+            <span class="attribute">Cutter</span>
+        </div>
+    </div>
+
+    <div class="table-container">
+        <div class="table-header">PRODUCTION_BATCH</div>
+        <div class="table-content">
+            <span class="attribute pk">BatchID</span>
+            <span class="attribute">StartTime</span>
+            <span class="attribute">EndTime</span>
+            <span class="attribute">PlannedTime</span>
+            <span class="attribute">Attributes</span>
+            <span class="attribute">GoodUnits</span>
+            <span class="attribute">BatchStatus</span>
+        </div>
+    </div>
+
+    <div class="table-container">
+        <div class="table-header table-new">
+            <span class="table-new-header">PLANNED_PRODUCTION</span>
+        </div>
+        <div class="table-content">
+            <span class="attribute pk">PlannedTime</span>
+            <span class="attribute">TotalUnitsProduced</span>
+        </div>
+    </div>
+
+    <div class="table-container">
+        <div class="table-header">MACHINE_PROCESSES</div>
+        <div class="table-content">
+            <span class="attribute pk">MachineID</span>
+            <span class="attribute pk">BatchID</span>
+        </div>
+    </div>
+
+    <div class="table-container">
+        <div class="table-header">PERFORMANCE_DATA</div>
+        <div class="table-content">
+            <span class="attribute pk">MachineID</span>
+            <span class="attribute pk">BatchID</span>
+            <span class="attribute pk">PerformanceID</span>
+            <span class="attribute">OperatingTime</span>
+            <span class="attribute">Downtime</span>
+            <span class="attribute">UpTime</span>
+            <span class="attribute">ActualOutput</span>
+            <span class="attribute">IdealOutput</span>
+        </div>
+    </div>
+
+    <div class="table-container">
+        <div class="table-header">MAINTENANCE_LOG</div>
+        <div class="table-content">
+            <span class="attribute pk">MaintenanceID</span>
+            <span class="attribute">Status</span>
+            <span class="attribute">IssueDescription</span>
+            <span class="attribute">MaintenanceType</span>
+            <span class="attribute">CompletedDate</span>
+            <span class="attribute">ScheduledDate</span>
+            <span class="attribute">MachineID</span>
+            <span class="attribute">AnomalyID</span>
+        </div>
+    </div>
+</div>
+
+<!-- PAGE 2 -->
+<div class="page">
+    <div class="header">BCNF – Factory Monitoring & Predictive Maintenance System (Continued)</div>
+
+    <div class="table-container">
+        <div class="table-header">ANOMALY_DETECTION_LOG</div>
+        <div class="table-content">
+            <span class="attribute pk">DetectionID</span>
+            <span class="attribute">DetectionAt</span>
+            <span class="attribute">AnomalyType</span>
+            <span class="attribute">DeviationScore</span>
+            <span class="attribute">IncidentSeverityScore</span>
+            <span class="attribute">MachineID</span>
+            <span class="attribute">PerformanceID</span>
+        </div>
+    </div>
+
+    <div class="table-container">
+        <div class="table-header table-new">
+            <span class="table-new-header">ANOMALY_ACTION_MAPPING</span>
+        </div>
+        <div class="table-content">
+            <span class="attribute pk">AnomalyType</span>
+            <span class="attribute">ActionTaken</span>
+        </div>
+    </div>
+
+    <div class="table-container">
+        <div class="table-header">BLOCKCHAIN_LOG</div>
+        <div class="table-content">
+            <span class="attribute pk">TransactionID</span>
+            <span class="attribute">Timestamp</span>
+            <span class="attribute">ActionType</span>
+            <span class="attribute">Auth</span>
+            <span class="attribute">LocationHash</span>
+            <span class="attribute">MaintenanceID</span>
+            <span class="attribute">MachineID</span>
+            <span class="attribute">BatchID</span>
+            <span class="attribute">PerformanceID</span>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

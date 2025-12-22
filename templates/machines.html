@@ -36,13 +36,26 @@
           
           {% if is_admin %}
           <td style="display:flex;gap:10px;">
-            <a class="btn small" style="flex:1;text-align:center;" href="{{ url_for('modify_machine', mid=m[0]) }}">Modify</a>
-            <form method="post" action="{{ url_for('delete_machine', mid=m[0]) }}" style="flex:1">
-              <button class="btn small" type="submit" 
-                style="width:100%;background:#fff;color:#2b2140;border:1px solid rgba(120,92,255,0.15);">
+
+            <!-- MODIFY BUTTON -->
+            <a class="btn small" style="flex:1;text-align:center;" 
+               href="{{ url_for('modify_machine', mid=m[0]) }}">
+              Modify
+            </a>
+
+            <!-- SAFE DELETE BUTTON -->
+            <form method="post" 
+                  action="{{ url_for('delete_machine', mid=m[0]) }}" 
+                  style="flex:1;"
+                  onsubmit="return confirm('⚠️ This will delete the machine AND all linked data (performance, anomalies, alerts, maintenance).\n\nAre you sure?');">
+
+              <button class="btn small" type="submit"
+                style="width:100%;background:#fff;color:#d7263d;font-weight:700;border:1px solid rgba(220,0,0,0.25);">
                 Delete
               </button>
+
             </form>
+
           </td>
           {% endif %}
         </tr>

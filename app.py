@@ -1,14 +1,8 @@
 """
-Full app.py for SteelFactoryDBMS
-Features:
- - Dashboard data endpoint with OEE recompute
- - IsolationForest ML anomalies (optional if sklearn/numpy installed)
- - Write anomalies into anomaly_detection table
- - Add deduped Alerts and Maintenance entries
- - Returns JSON structured for the dashboard.html below
-
-Required packages (if you want ML):
-  pip install numpy scikit-learn python-dotenv mysql-connector-python
+Steel Factory Management System - Flask App
+Option A: ML runs ONLY via manual scan (/run_anomaly_scan). No ML inside /dashboard_data.
+- Dashboard reads from anomaly_detection (read-only).
+- run_ml_scan wipes anomaly_detection, re-inserts fresh results, and raises alerts/maintenance.
 """
 
 from flask import Flask, render_template, request, redirect, session, url_for, flash, jsonify
@@ -86,18 +80,24 @@ def add_alert(machine_id, message, severity="MEDIUM", dedupe_minutes=60):
         cur = conn.cursor()
 
         # check if same message exists within dedupe_minutes
-        cur.execute("""
+        cur.execute(
+            """
             SELECT AlertID FROM Alerts
             WHERE MachineID=%s AND AlertMessage=%s AND Timestamp > DATE_SUB(NOW(), INTERVAL %s MINUTE)
             LIMIT 1
-        """, (machine_id, message, dedupe_minutes))
+            """,
+            (machine_id, message, dedupe_minutes),
+        )
         if cur.fetchone():
             return False  # duplicate recently, skip insert
 
-        cur.execute("""
+        cur.execute(
+            """
             INSERT INTO Alerts (MachineID, AlertMessage, Severity)
             VALUES (%s, %s, %s)
-        """, (machine_id, message, severity))
+            """,
+            (machine_id, message, severity),
+        )
         conn.commit()
         return True
     except Exception as e:
@@ -106,8 +106,10 @@ def add_alert(machine_id, message, severity="MEDIUM", dedupe_minutes=60):
             conn.rollback()
         return False
     finally:
-        if cur: cur.close()
-        if conn: conn.close()
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
 
 # -------------------------
 # Maintenance helper (prevents duplicate pending entries)
@@ -120,18 +122,24 @@ def add_maintenance(machine_id, issue, status="PENDING"):
         cur = conn.cursor()
 
         # If there's already a pending maintenance with same issue recently, skip
-        cur.execute("""
+        cur.execute(
+            """
             SELECT MaintenanceID FROM maintenance_log
             WHERE MachineID=%s AND IssueDescription=%s AND Status=%s
             LIMIT 1
-        """, (machine_id, issue, status))
+            """,
+            (machine_id, issue, status),
+        )
         if cur.fetchone():
             return False
 
-        cur.execute("""
+        cur.execute(
+            """
             INSERT INTO maintenance_log (MachineID, IssueDescription, MaintenanceDate, Status)
             VALUES (%s, %s, NOW(), %s)
-        """, (machine_id, issue, status))
+            """,
+            (machine_id, issue, status),
+        )
         conn.commit()
         return True
     except Exception as e:
@@ -140,11 +148,13 @@ def add_maintenance(machine_id, issue, status="PENDING"):
             conn.rollback()
         return False
     finally:
-        if cur: cur.close()
-        if conn: conn.close()
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
 
 # -------------------------
-# Blockchain helpers (unchanged)
+# Blockchain helpers
 # -------------------------
 def add_block_to_chain(performance_id, data_string):
     conn = get_db_connection()
@@ -154,20 +164,24 @@ def add_block_to_chain(performance_id, data_string):
         last = cursor.fetchone()
         prev_hash = last[0] if last else "0"
         new_hash = generate_hash(data_string + prev_hash)
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT INTO blockchain_log (PerformanceID, Hash, PrevHash, Data)
             VALUES (%s, %s, %s, %s)
-        """, (performance_id, new_hash, prev_hash, data_string))
+            """,
+            (performance_id, new_hash, prev_hash, data_string),
+        )
         conn.commit()
     except Exception as e:
         logging.getLogger(__name__).warning("add_block_to_chain failed: %s", e)
         try:
             conn.rollback()
-        except:
+        except Exception:
             pass
     finally:
         cursor.close()
         conn.close()
+
 
 def log_machine_event(data_string):
     conn = get_db_connection()
@@ -177,32 +191,37 @@ def log_machine_event(data_string):
         last = cursor.fetchone()
         prev_hash = last[0] if last else "0"
         new_hash = generate_hash(data_string + prev_hash)
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT INTO blockchain_log (PerformanceID, Hash, PrevHash, Data)
             VALUES (%s, %s, %s, %s)
-        """, (None, new_hash, prev_hash, data_string))
+            """,
+            (None, new_hash, prev_hash, data_string),
+        )
         conn.commit()
     except Exception as e:
         logging.getLogger(__name__).warning("log_machine_event failed: %s", e)
         try:
             conn.rollback()
-        except:
+        except Exception:
             pass
     finally:
         cursor.close()
         conn.close()
 
 # -------------------------
-# OEE update helper (unchanged)
+# OEE update helper
 # -------------------------
 def update_oee_values():
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT PerformanceID, OperatingTime, Downtime, ActualOutput, IdealOutput, GoodUnits, TotalUnits
             FROM Performance_Data
-        """)
+            """
+        )
         rows = cursor.fetchall()
         for r in rows:
             pid = r[0]
@@ -222,20 +241,147 @@ def update_oee_values():
                 quality = (gu / tu) if tu > 0 else 0
                 oee = availability * performance * quality * 100
 
-            cursor.execute("UPDATE Performance_Data SET OEE=%s WHERE PerformanceID=%s", (oee, pid))
+            cursor.execute(
+                "UPDATE Performance_Data SET OEE=%s WHERE PerformanceID=%s",
+                (oee, pid),
+            )
         conn.commit()
     except Exception as e:
         logging.getLogger(__name__).warning("update_oee_values failed: %s", e)
         try:
             conn.rollback()
-        except:
+        except Exception:
             pass
     finally:
         cursor.close()
         conn.close()
 
 # -------------------------
-# Auth routes (mostly unchanged)
+# ML scan helper (manual trigger only)
+# -------------------------
+def run_ml_scan():
+    """
+    Runs IsolationForest on Performance_Data,
+    refreshes anomaly_detection table,
+    and creates Alerts + Maintenance for true anomalies.
+
+    Features used: [OEE, Downtime, ActualOutput]
+    """
+    if not ML_AVAILABLE:
+        logging.getLogger(__name__).warning("ML not available, skipping scan.")
+        return 0, 0  # total rows, anomaly count
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    try:
+        # 1) Load performance data
+        cursor.execute(
+            """
+            SELECT PerformanceID, MachineID, OEE, Downtime, ActualOutput
+            FROM Performance_Data
+            ORDER BY PerformanceID ASC
+            """
+        )
+        rows = cursor.fetchall()
+
+        if not rows:
+            return 0, 0
+
+        perf_ids = []
+        machine_ids = []
+        features = []
+
+        for pid, mid, oee, down, actual in rows:
+            oee = float(oee or 0.0)
+            down = float(down or 0.0)
+            actual = int(actual or 0)
+
+            perf_ids.append(pid)
+            machine_ids.append(mid)
+            features.append([oee, down, actual])
+
+        # Too few rows → no ML
+        if len(features) < 5:
+            logging.getLogger(__name__).info("Not enough rows for ML scan.")
+            return len(features), 0
+
+        X = np.array(features, dtype=float)
+
+        contamination = 0.10 if len(X) >= 20 else 0.20
+        iso = IsolationForest(contamination=contamination, random_state=42)
+        preds = iso.fit_predict(X)        # -1 = anomaly, 1 = normal
+        scores = iso.decision_function(X) # lower = more anomalous
+
+        # 2) Refresh anomaly_detection table with latest scan only
+        cursor.execute("DELETE FROM anomaly_detection")
+        conn.commit()
+
+        anomaly_count = 0
+
+        for i, pid in enumerate(perf_ids):
+            mid = machine_ids[i]
+            score = float(scores[i])
+            is_anom = 1 if preds[i] == -1 else 0
+
+            cursor.execute(
+                """
+                INSERT INTO anomaly_detection (MachineID, PerformanceID, AnomalyScore, IsAnomaly, Timestamp)
+                VALUES (%s, %s, %s, %s, NOW())
+                """,
+                (mid, pid, score, is_anom),
+            )
+
+            # For *true* anomalies, also create Alerts + Maintenance
+            if is_anom:
+                anomaly_count += 1
+
+                # Machine name for prettier messages
+                try:
+                    c2 = conn.cursor()
+                    c2.execute(
+                        "SELECT MachineName FROM Machine WHERE MachineID=%s",
+                        (mid,),
+                    )
+                    r = c2.fetchone()
+                    mname = r[0] if r and r[0] else f"Machine {mid}"
+                    c2.close()
+                except Exception:
+                    mname = f"Machine {mid}"
+
+                severity = "HIGH" if score < -0.25 else "MEDIUM"
+                msg = f"{mname}: ML anomaly detected (score {score:.3f})"
+
+                try:
+                    add_alert(mid, msg, severity=severity, dedupe_minutes=60)
+                except Exception as e:
+                    logging.getLogger(__name__).warning("add_alert from scan failed: %s", e)
+
+                if severity == "HIGH":
+                    try:
+                        add_maintenance(mid, f"{mname}: Predicted failure risk - HIGH")
+                    except Exception as e:
+                        logging.getLogger(__name__).warning("add_maintenance from scan failed: %s", e)
+
+        conn.commit()
+        logging.getLogger(__name__).info(
+            "ML scan complete: %d rows, %d anomalies", len(features), anomaly_count
+        )
+        return len(features), anomaly_count
+
+    except Exception as e:
+        logging.getLogger(__name__).warning("run_ml_scan error: %s", e)
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return 0, 0
+    finally:
+        cursor.close()
+        conn.close()
+
+# -------------------------
+# Auth routes
 # -------------------------
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -253,6 +399,7 @@ def login():
             return render_template('login.html', next=next_url)
     return render_template('login.html', next=next_url)
 
+
 @app.route('/logout')
 def logout():
     session.pop('is_admin', None)
@@ -268,6 +415,7 @@ def logout():
 def dashboard():
     return render_template('dashboard.html', is_admin=session.get('is_admin', False))
 
+
 @app.route('/dashboard_data')
 def dashboard_data():
     conn = get_db_connection()
@@ -278,11 +426,14 @@ def dashboard_data():
 
     # 1) OEE trend + per-row metrics
     try:
-        cursor.execute("""
-            SELECT PerformanceID, MachineID, OperatingTime, Downtime, ActualOutput, IdealOutput, GoodUnits, TotalUnits, OEE
+        cursor.execute(
+            """
+            SELECT PerformanceID, MachineID, OperatingTime, Downtime,
+                   ActualOutput, IdealOutput, GoodUnits, TotalUnits, OEE
             FROM Performance_Data
             ORDER BY PerformanceID ASC
-        """)
+            """
+        )
         perf_rows_full = cursor.fetchall()
     except Exception as e:
         logging.getLogger(__name__).warning("Perf full fetch failed: %s", e)
@@ -293,10 +444,6 @@ def dashboard_data():
     availability_values = []
     performance_values = []
     quality_values = []
-
-    # ML feature containers
-    ml_features = []
-    ml_map = []  # list of tuples (PerformanceID, MachineID)
 
     for r in perf_rows_full:
         pid, mid, ot, down, ao, io, gu, tu, oee = r
@@ -318,12 +465,10 @@ def dashboard_data():
         performance_values.append(round(performance, 2))
         quality_values.append(round(quality, 2))
 
-        ml_features.append([float(oee or 0), down, ao])
-        ml_map.append((pid, mid))
-
     # 2) Machine summary
     try:
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT m.MachineID, m.MachineName,
                    AVG(p.OEE) as avg_oee,
                    SUM(p.Downtime) as total_downtime,
@@ -331,7 +476,8 @@ def dashboard_data():
             FROM Machine m
             LEFT JOIN Performance_Data p ON m.MachineID = p.MachineID
             GROUP BY m.MachineID
-        """)
+            """
+        )
         machine_rows = cursor.fetchall()
     except Exception as e:
         logging.getLogger(__name__).warning("Machine summary fetch failed: %s", e)
@@ -347,17 +493,25 @@ def dashboard_data():
         avg_quality = float(row[4]) if row[4] is not None else 0.0
 
         all_oee.append(avg_oee)
-        machines_health.append({
-            "id": mid,
-            "name": name,
-            "oee": round(avg_oee, 2),
-            "downtime": round(downtime, 2),
-            "quality": round(avg_quality, 2),
-            "status": "healthy" if avg_oee >= 85 else "warning" if avg_oee >= 70 else "critical"
-        })
+        machines_health.append(
+            {
+                "id": mid,
+                "name": name,
+                "oee": round(avg_oee, 2),
+                "downtime": round(downtime, 2),
+                "quality": round(avg_quality, 2),
+                "status": "healthy"
+                if avg_oee >= 85
+                else "warning"
+                if avg_oee >= 70
+                else "critical",
+            }
+        )
 
     factory_avg_oee = (sum(all_oee) / len(all_oee)) if all_oee else 0.0
-    factory_status = "healthy" if factory_avg_oee >= 85 else "warning" if factory_avg_oee >= 70 else "critical"
+    factory_status = (
+        "healthy" if factory_avg_oee >= 85 else "warning" if factory_avg_oee >= 70 else "critical"
+    )
 
     # 3) Good vs defective
     try:
@@ -374,24 +528,28 @@ def dashboard_data():
     # 4) Recent alerts (fetch last 50, we'll dedupe later)
     recent_alerts = []
     try:
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT a.AlertID, a.MachineID, a.AlertMessage, m.MachineName, a.Severity, a.Timestamp
             FROM Alerts a
             LEFT JOIN Machine m ON a.MachineID = m.MachineID
             ORDER BY a.Timestamp DESC
             LIMIT 50
-        """)
+            """
+        )
         ar = cursor.fetchall()
         for row in ar:
             aid, mid, msg, mname, sev, ts = row
-            recent_alerts.append({
-                "id": aid,
-                "machine_id": mid,
-                "machine": mname or f"Machine-{mid}",
-                "message": msg,
-                "severity": sev or "MEDIUM",
-                "time": ts.strftime("%Y-%m-%d %H:%M:%S") if ts else ""
-            })
+            recent_alerts.append(
+                {
+                    "id": aid,
+                    "machine_id": mid,
+                    "machine": mname or f"Machine-{mid}",
+                    "message": msg,
+                    "severity": sev or "MEDIUM",
+                    "time": ts.strftime("%Y-%m-%d %H:%M:%S") if ts else "",
+                }
+            )
     except Exception as e:
         logging.getLogger(__name__).warning("Fetch recent_alerts failed: %s", e)
         recent_alerts = []
@@ -404,106 +562,61 @@ def dashboard_data():
             deduped_alerts_map[key] = a
     deduped_alerts = list(deduped_alerts_map.values())
 
-    # 5) Simple anomalies (top low OEE rows) - keep these for fallback
+    # 5) Simple anomalies (top low OEE rows) - fallback only (not ML)
     anomalies = []
     try:
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT p.PerformanceID, m.MachineName, p.OEE
             FROM Performance_Data p
             LEFT JOIN Machine m ON p.MachineID = m.MachineID
             ORDER BY p.OEE ASC LIMIT 3
-        """)
+            """
+        )
         low_rows = cursor.fetchall()
         for lr in low_rows:
-            anomalies.append({
-                "machine": lr[1] or "Unknown",
-                "issue": "Low OEE detected",
-                "recommendation": "Schedule inspection"
-            })
+            anomalies.append(
+                {
+                    "machine": lr[1] or "Unknown",
+                    "issue": "Low OEE detected",
+                    "recommendation": "Schedule inspection",
+                }
+            )
     except Exception:
         anomalies = []
 
-    # 6) ML anomaly detection + populate anomaly_detection table safely
+    # 6) Load latest ML anomalies from anomaly_detection table (read-only)
     ml_anomalies = []
     try:
-        # optional: clear previous anomaly_detection if you want fresh each run
-        # cursor.execute("DELETE FROM anomaly_detection")
-        # conn.commit()
-        pass
+        cursor.execute(
+            """
+            SELECT a.MachineID, m.MachineName, a.PerformanceID, a.AnomalyScore, a.Timestamp
+            FROM anomaly_detection a
+            LEFT JOIN Machine m ON a.MachineID = m.MachineID
+            WHERE a.IsAnomaly = 1
+            ORDER BY a.Timestamp DESC
+            LIMIT 10
+            """
+        )
+        rows = cursor.fetchall()
+        for r in rows:
+            mid, mname, pid, score, ts = r
+            mname = mname or f"Machine {mid}"
+            severity = "HIGH" if float(score) < -0.25 else "MEDIUM"
+            ml_anomalies.append(
+                {
+                    "machine": mname,
+                    "issue": f"ML anomaly detected (score {float(score):.3f})",
+                    "severity": severity,
+                    "score": round(float(score), 3),
+                    "time": ts.strftime("%Y-%m-%d %H:%M:%S") if ts else "",
+                }
+            )
     except Exception as e:
-        logging.getLogger(__name__).warning("Failed to clear anomaly_detection: %s", e)
-        try:
-            conn.rollback()
-        except:
-            pass
+        logging.getLogger(__name__).warning("Fetch ml anomalies failed: %s", e)
+        ml_anomalies = []
 
-    if ML_AVAILABLE and len(ml_features) >= 6:
-        try:
-            X = np.array(ml_features, dtype=float)
-            contamination = 0.05 if len(X) > 100 else 0.08
-            iso = IsolationForest(contamination=contamination, random_state=42)
-            preds = iso.fit_predict(X)  # -1 anomaly, 1 normal
-            scores = iso.decision_function(X)  # higher -> less anomalous
-
-            # Insert anomalies and create alerts/maintenance with dedupe checks
-            for i, pred in enumerate(preds):
-                pid, mid = ml_map[i]
-                score = float(scores[i])
-                is_anom = 1 if pred == -1 else 0
-
-                # Insert anomaly row into DB (store score + flag)
-                try:
-                    cursor.execute("""
-                        INSERT INTO anomaly_detection (MachineID, PerformanceID, AnomalyScore, IsAnomaly, Timestamp)
-                        VALUES (%s, %s, %s, %s, NOW())
-                    """, (mid, pid, score, is_anom))
-                    conn.commit()
-                except Exception as e:
-                    logging.getLogger(__name__).warning("Insert anomaly_detection failed: %s", e)
-                    try:
-                        conn.rollback()
-                    except:
-                        pass
-
-                if is_anom:
-                    severity = "HIGH" if score < -0.25 else "MEDIUM"
-                    # friendly machine name if available
-                    try:
-                        cursor2 = conn.cursor()
-                        cursor2.execute("SELECT MachineName FROM Machine WHERE MachineID=%s", (mid,))
-                        mn = cursor2.fetchone()
-                        machine_name = mn[0] if mn and mn[0] else f"Machine {mid}"
-                        cursor2.close()
-                    except Exception:
-                        machine_name = f"Machine {mid}"
-
-                    ml_anomalies.append({
-                        "machine": machine_name,
-                        "issue": f"ML anomaly detected (score {score:.3f})",
-                        "severity": severity,
-                        "score": round(score, 3),
-                        "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    })
-
-                    # Add an alert (deduped by DB helper)
-                    try:
-                        add_alert(mid, f"{machine_name}: ML anomaly detected (score {score:.3f})", severity, dedupe_minutes=60)
-                    except Exception as e:
-                        logging.getLogger(__name__).warning("add_alert in ML loop failed: %s", e)
-
-                    # If HIGH severity, schedule maintenance (dedup checks inside add_maintenance)
-                    if severity == "HIGH":
-                        try:
-                            add_maintenance(mid, f"{machine_name}: Predicted failure risk - HIGH")
-                        except Exception as e:
-                            logging.getLogger(__name__).warning("add_maintenance in ML loop failed: %s", e)
-
-        except Exception as e:
-            logging.getLogger(__name__).warning("ML pipeline error: %s", e)
-    else:
-        logging.getLogger(__name__).info("Skipping ML: available=%s, rows=%d", ML_AVAILABLE, len(ml_features))
-
-    # dedupe ml_anomalies by machine (keep latest)
+    # dedupe ml anomalies by machine (keep latest)
     dedup_ml = {}
     for a in ml_anomalies:
         dedup_ml[a["machine"]] = a
@@ -512,14 +625,16 @@ def dashboard_data():
     # 7) Maintenance list for dashboard (pending) - dedupe by machine name
     maintenance = []
     try:
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT ml.MaintenanceID, ml.MachineID, ml.IssueDescription, ml.MaintenanceDate, ml.Status, m.MachineName
             FROM maintenance_log ml
             LEFT JOIN Machine m ON ml.MachineID = m.MachineID
             WHERE ml.Status IN ('PENDING','SCHEDULED')
             ORDER BY ml.MaintenanceDate DESC
             LIMIT 50
-        """)
+            """
+        )
         maint_rows = cursor.fetchall()
         # dedupe by machine name, keep the latest
         seen_maint = {}
@@ -532,7 +647,7 @@ def dashboard_data():
                     "machine": mname,
                     "reason": mr[2],
                     "date": mr[3].strftime("%Y-%m-%d %H:%M:%S") if mr[3] else "",
-                    "status": mr[4]
+                    "status": mr[4],
                 }
         maintenance = list(seen_maint.values())
     except Exception as e:
@@ -543,7 +658,7 @@ def dashboard_data():
     try:
         cursor.close()
         conn.close()
-    except:
+    except Exception:
         pass
 
     payload = {
@@ -552,25 +667,22 @@ def dashboard_data():
         "availability": availability_values,
         "performance": performance_values,
         "quality": quality_values,
-
         "machines_health": machines_health,
         "factory_avg_oee": round(factory_avg_oee, 2),
         "factory_status": factory_status,
-
         "good_units": good_units,
         "defective_units": defective_units,
         "factory_total_units": total_units,
-
         "anomalies": anomalies,            # simple OEE-based anomalies (fallback)
-        "ml_anomalies": ml_final,          # ML anomalies (deduped)
+        "ml_anomalies": ml_final,          # ML anomalies from anomaly_detection (deduped)
         "recent_alerts": deduped_alerts,   # deduped alerts
-        "maintenance": maintenance         # deduped maintenance entries
+        "maintenance": maintenance,        # deduped maintenance entries
     }
 
     return jsonify(payload)
 
 # -------------------------
-# Machines routes (unchanged)
+# Machines routes
 # -------------------------
 @app.route('/machines')
 def view_machines():
@@ -581,6 +693,7 @@ def view_machines():
     cursor.close()
     conn.close()
     return render_template('machines.html', machines=machines, is_admin=session.get('is_admin', False))
+
 
 @app.route('/add_machine', methods=['GET', 'POST'])
 @admin_required
@@ -601,14 +714,20 @@ def add_machine():
         if existing:
             message = f"⚠️ Machine '{name}' already exists!"
         else:
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT INTO Machine (MachineName, MachineType, Location, Status)
                 VALUES (%s, %s, %s, %s)
-            """, (name, mtype, location, status))
+                """,
+                (name, mtype, location, status),
+            )
             conn.commit()
             new_mid = cursor.lastrowid
             message = f"✅ Machine '{name}' added successfully!"
-            event = f"ADD_MACHINE|MachineID={new_mid}|Name={name}|Type={mtype}|Loc={location}|Status={status}"
+            event = (
+                f"ADD_MACHINE|MachineID={new_mid}|Name={name}|Type={mtype}|"
+                f"Loc={location}|Status={status}"
+            )
             log_machine_event(event)
 
         cursor.close()
@@ -617,15 +736,20 @@ def add_machine():
 
     return render_template('add_machine.html', message=message, is_admin=True)
 
+
 @app.route('/modify_machine/<int:mid>', methods=['GET', 'POST'])
 @admin_required
 def modify_machine(mid):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT MachineID, MachineName, MachineType, Location, Status FROM Machine WHERE MachineID=%s", (mid,))
+    cursor.execute(
+        "SELECT MachineID, MachineName, MachineType, Location, Status FROM Machine WHERE MachineID=%s",
+        (mid,),
+    )
     machine = cursor.fetchone()
     if not machine:
-        cursor.close(); conn.close()
+        cursor.close()
+        conn.close()
         flash("Machine not found.", "error")
         return redirect(url_for('view_machines'))
 
@@ -636,57 +760,132 @@ def modify_machine(mid):
         status = request.form['status']
         override = request.form.get('override_password', '')
         if override != MASTER_OVERRIDE:
-            cursor.close(); conn.close()
-            return render_template('modify_machine.html', machine=machine, message="❌ Wrong override password", is_admin=True)
-        cursor.execute("""
-            UPDATE Machine SET MachineName=%s, MachineType=%s, Location=%s, Status=%s WHERE MachineID=%s
-        """, (name, mtype, location, status, mid))
+            cursor.close()
+            conn.close()
+            return render_template(
+                'modify_machine.html',
+                machine=machine,
+                message="❌ Wrong override password",
+                is_admin=True,
+            )
+        cursor.execute(
+            """
+            UPDATE Machine SET MachineName=%s, MachineType=%s, Location=%s, Status=%s
+            WHERE MachineID=%s
+            """,
+            (name, mtype, location, status, mid),
+        )
         conn.commit()
-        event = f"MODIFY_MACHINE|MachineID={mid}|NewName={name}|NewType={mtype}|NewLocation={location}|NewStatus={status}"
+        event = (
+            f"MODIFY_MACHINE|MachineID={mid}|NewName={name}|NewType={mtype}|"
+            f"NewLocation={location}|NewStatus={status}"
+        )
         log_machine_event(event)
-        cursor.close(); conn.close()
+        cursor.close()
+        conn.close()
         flash("Machine updated.", "success")
         return redirect(url_for('view_machines'))
 
-    cursor.close(); conn.close()
-    return render_template('modify_machine.html', machine=machine, message="", is_admin=True)
+    cursor.close()
+    conn.close()
+    return render_template(
+        'modify_machine.html', machine=machine, message="", is_admin=True
+    )
+
+# Safe delete with FK cleanup
+def safe_delete_machine(mid, admin_name="admin"):
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    try:
+        # 1. Delete anomaly logs
+        cur.execute(
+            """
+            DELETE FROM anomaly_detection
+            WHERE PerformanceID IN (
+                SELECT PerformanceID FROM Performance_Data WHERE MachineID=%s
+            )
+            """,
+            (mid,),
+        )
+
+        # 2. Delete alerts
+        cur.execute("DELETE FROM Alerts WHERE MachineID=%s", (mid,))
+
+        # 3. Delete maintenance logs
+        cur.execute("DELETE FROM Maintenance_Log WHERE MachineID=%s", (mid,))
+
+        # 4. Delete blockchain logs linked to performance records
+        cur.execute(
+            """
+            DELETE FROM blockchain_log
+            WHERE PerformanceID IN (
+                SELECT PerformanceID FROM Performance_Data WHERE MachineID=%s
+            )
+            """,
+            (mid,),
+        )
+
+        # 5. Delete performance rows
+        cur.execute("DELETE FROM Performance_Data WHERE MachineID=%s", (mid,))
+
+        # 6. Finally delete the machine
+        cur.execute("DELETE FROM Machine WHERE MachineID=%s", (mid,))
+
+        conn.commit()
+
+        # 7. Log blockchain event
+        event = f"DELETE_MACHINE|MachineID={mid}|By={admin_name}"
+        log_machine_event(event)
+
+        return True
+
+    except Exception as e:
+        conn.rollback()
+        print("SAFE DELETE FAILED:", e)
+        return False
+
+    finally:
+        cur.close()
+        conn.close()
+
 
 @app.route('/delete_machine/<int:mid>', methods=['POST'])
 @admin_required
 def delete_machine(mid):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    try:
-        cursor.execute("DELETE FROM Performance_Data WHERE MachineID=%s", (mid,))
-        cursor.execute("DELETE FROM Machine WHERE MachineID=%s", (mid,))
-        conn.commit()
-        event = f"DELETE_MACHINE|MachineID={mid}|By={session.get('admin_name','admin')}"
-        log_machine_event(event)
-        flash("Machine deleted.", "info")
-    except Exception as e:
-        conn.rollback()
-        flash(f"Error deleting machine: {str(e)}", "error")
-    finally:
-        cursor.close(); conn.close()
+    ok = safe_delete_machine(mid, admin_name=session.get("admin_name", "admin"))
+
+    if ok:
+        flash("Machine deleted safely.", "info")
+    else:
+        flash("Failed to delete machine.", "error")
+
+
     return redirect(url_for('view_machines'))
 
 # -------------------------
-# Performance routes (unchanged)
+# Performance routes
 # -------------------------
 @app.route('/performance')
 def view_performance():
     update_oee_values()
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("""
+    cursor.execute(
+        """
         SELECT p.PerformanceID, m.MachineName, p.OperatingTime, p.Downtime,
                p.ActualOutput, p.IdealOutput, p.GoodUnits, p.TotalUnits, p.OEE
         FROM Performance_Data p
         LEFT JOIN Machine m ON p.MachineID = m.MachineID
-    """)
+        """
+    )
     data = cursor.fetchall()
-    cursor.close(); conn.close()
-    return render_template('performance.html', data=data, is_admin=session.get('is_admin', False))
+    cursor.close()
+    conn.close()
+    return render_template(
+        'performance.html', data=data, is_admin=session.get('is_admin', False)
+    )
+
 
 @app.route('/add_performance', methods=['GET', 'POST'])
 @admin_required
@@ -708,32 +907,48 @@ def add_performance():
         performance = (ao / io) if io > 0 else 0
         quality = (gu / tu) if tu > 0 else 0
         oee = availability * performance * quality * 100
-        cursor.execute("""
-            INSERT INTO Performance_Data (MachineID, OperatingTime, Downtime, ActualOutput, IdealOutput, GoodUnits, TotalUnits, OEE)
+        cursor.execute(
+            """
+            INSERT INTO Performance_Data
+            (MachineID, OperatingTime, Downtime, ActualOutput, IdealOutput, GoodUnits, TotalUnits, OEE)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-        """, (mid, ot, down, ao, io, gu, tu, oee))
+            """,
+            (mid, ot, down, ao, io, gu, tu, oee),
+        )
         conn.commit()
         pid = cursor.lastrowid
-        data_string = f"ADD_PERFORMANCE|PerformanceID={pid}|MachineID={mid}|OperatingTime={ot}|Downtime={down}|ActualOutput={ao}|IdealOutput={io}|GoodUnits={gu}|TotalUnits={tu}|OEE={oee}|By={session.get('admin_name','admin')}"
+        data_string = (
+            f"ADD_PERFORMANCE|PerformanceID={pid}|MachineID={mid}|OperatingTime={ot}|"
+            f"Downtime={down}|ActualOutput={ao}|IdealOutput={io}|GoodUnits={gu}|"
+            f"TotalUnits={tu}|OEE={oee}|By={session.get('admin_name','admin')}"
+        )
         add_block_to_chain(pid, data_string)
-        cursor.close(); conn.close()
+        cursor.close()
+        conn.close()
         flash("Performance entry added.", "success")
         return redirect(url_for('view_performance'))
-    cursor.close(); conn.close()
+    cursor.close()
+    conn.close()
     return render_template('add_performance.html', machines=machines, is_admin=True)
+
 
 @app.route('/modify_performance/<int:pid>', methods=['GET', 'POST'])
 @admin_required
 def modify_performance(pid):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("""
-        SELECT PerformanceID, MachineID, OperatingTime, Downtime, ActualOutput, IdealOutput, GoodUnits, TotalUnits
+    cursor.execute(
+        """
+        SELECT PerformanceID, MachineID, OperatingTime, Downtime, ActualOutput,
+               IdealOutput, GoodUnits, TotalUnits
         FROM Performance_Data WHERE PerformanceID=%s
-    """, (pid,))
+        """,
+        (pid,),
+    )
     row = cursor.fetchone()
     if not row:
-        cursor.close(); conn.close()
+        cursor.close()
+        conn.close()
         flash("Performance record not found.", "error")
         return redirect(url_for('view_performance'))
 
@@ -746,42 +961,124 @@ def modify_performance(pid):
         new_tu = int(request.form['total_units'])
         override = request.form.get('override_password', '')
         if override != MASTER_OVERRIDE:
-            cursor.close(); conn.close()
-            return render_template('modify_performance.html', data=row, message="❌ Wrong override password", is_admin=True)
+            cursor.close()
+            conn.close()
+            return render_template(
+                'modify_performance.html',
+                data=row,
+                message="❌ Wrong override password",
+                is_admin=True,
+            )
         planned = new_ot + new_down
         availability = (new_ot / planned) if planned > 0 else 0
         performance = (new_ao / new_io) if new_io > 0 else 0
         quality = (new_gu / new_tu) if new_tu > 0 else 0
         oee = availability * performance * quality * 100
-        cursor.execute("""
-            UPDATE Performance_Data SET OperatingTime=%s, Downtime=%s, ActualOutput=%s, IdealOutput=%s, GoodUnits=%s, TotalUnits=%s, OEE=%s
+        cursor.execute(
+            """
+            UPDATE Performance_Data
+            SET OperatingTime=%s, Downtime=%s, ActualOutput=%s, IdealOutput=%s,
+                GoodUnits=%s, TotalUnits=%s, OEE=%s
             WHERE PerformanceID=%s
-        """, (new_ot, new_down, new_ao, new_io, new_gu, new_tu, oee, pid))
+            """,
+            (new_ot, new_down, new_ao, new_io, new_gu, new_tu, oee, pid),
+        )
         conn.commit()
-        data_string = f"MODIFY_PERFORMANCE|PerformanceID={pid}|NewOperatingTime={new_ot}|NewDowntime={new_down}|NewActualOutput={new_ao}|NewIdealOutput={new_io}|NewGoodUnits={new_gu}|NewTotalUnits={new_tu}|NewOEE={oee}|By={session.get('admin_name','admin')}"
+        data_string = (
+            f"MODIFY_PERFORMANCE|PerformanceID={pid}|NewOperatingTime={new_ot}|"
+            f"NewDowntime={new_down}|NewActualOutput={new_ao}|NewIdealOutput={new_io}|"
+            f"NewGoodUnits={new_gu}|NewTotalUnits={new_tu}|NewOEE={oee}|"
+            f"By={session.get('admin_name','admin')}"
+        )
         add_block_to_chain(pid, data_string)
-        cursor.close(); conn.close()
+        cursor.close()
+        conn.close()
         flash("Performance updated.", "success")
         return redirect(url_for('view_performance'))
 
-    cursor.close(); conn.close()
+    cursor.close()
+    conn.close()
     return render_template('modify_performance.html', data=row, is_admin=True, message="")
 
+
 # -------------------------
-# Blockchain route (unchanged)
+# Blockchain route
 # -------------------------
 @app.route('/blockchain')
 def view_blockchain():
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("""
+    cursor.execute(
+        """
         SELECT BlockID, PerformanceID, Hash, PrevHash, Data, Timestamp
         FROM blockchain_log
         ORDER BY BlockID ASC
-    """)
+        """
+    )
     blocks = cursor.fetchall()
-    cursor.close(); conn.close()
-    return render_template('blockchain.html', blocks=blocks, is_admin=session.get('is_admin', False))
+    cursor.close()
+    conn.close()
+    return render_template(
+        'blockchain.html', blocks=blocks, is_admin=session.get('is_admin', False)
+    )
+
+# -------------------------
+# Anomalies routes
+# -------------------------
+@app.route('/run_anomaly_scan', methods=['POST'])
+@admin_required
+def run_anomaly_scan_route():
+    total, anomalies = run_ml_scan()
+    flash(
+        f"Anomaly scan completed on {total} records. Detected {anomalies} anomalies.",
+        "info",
+    )
+    return redirect(url_for('view_anomalies'))
+
+
+@app.route('/anomalies')
+def view_anomalies():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT 
+            a.AnomalyID,
+            m.MachineName,
+            a.MachineID,
+            a.PerformanceID,
+            a.AnomalyScore,
+            a.IsAnomaly,
+            a.Timestamp
+        FROM anomaly_detection a
+        LEFT JOIN Machine m ON a.MachineID = m.MachineID
+        ORDER BY a.Timestamp DESC
+        LIMIT 200
+        """
+    )
+    rows = cursor.fetchall()
+
+    anomalies = []
+    for r in rows:
+        anomalies.append(
+            {
+                "id": r[0],
+                "machine": r[1] if r[1] else f"Machine {r[2]}",
+                "machine_id": r[2],
+                "performance_id": r[3],
+                "score": float(r[4]),
+                "severity": "HIGH" if float(r[4]) < -0.25 else "MEDIUM",
+                "is_anomaly": r[5],
+                "time": r[6].strftime("%Y-%m-%d %H:%M:%S") if r[6] else "",
+            }
+        )
+
+    cursor.close()
+    conn.close()
+    return render_template(
+        'anomalies.html', anomalies=anomalies, is_admin=session.get("is_admin", False)
+    )
 
 # -------------------------
 # Run server
