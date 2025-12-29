@@ -4,6 +4,7 @@ Option A: ML runs ONLY via manual scan (/run_anomaly_scan). No ML inside /dashbo
 - Dashboard reads from anomaly_detection (read-only).
 - run_ml_scan wipes anomaly_detection, re-inserts fresh results, and raises alerts/maintenance.
 """
+from werkzeug.security import generate_password_hash, check_password_hash
 
 from flask import Flask, render_template, request, redirect, session, url_for, flash, jsonify
 import mysql.connector
@@ -64,10 +65,51 @@ def generate_hash(data_string):
 def admin_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        if not session.get('is_admin'):
-            return redirect(url_for('login', next=request.path))
+        if not session.get('user_id') or session.get('role') != 'admin':
+            flash("Admin access required.", "error")
+            return redirect(url_for('login'))
         return f(*args, **kwargs)
     return decorated
+def login_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get('user_id'):
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated
+
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        username = request.form['username'].strip()
+        password = request.form['password']
+        role = request.form['role']  # 'admin' or 'user'
+
+        if role not in ('admin', 'user'):
+            flash("Invalid role.", "error")
+            return redirect(url_for('register'))
+
+        pw_hash = generate_password_hash(password)
+
+        conn = get_db_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute("""
+                INSERT INTO users (Username, PasswordHash, Role)
+                VALUES (%s, %s, %s)
+            """, (username, pw_hash, role))
+            conn.commit()
+            flash("Registration successful. Please login.", "success")
+            return redirect(url_for('login'))
+        except mysql.connector.IntegrityError:
+            flash("Username already exists.", "error")
+        finally:
+            cur.close()
+            conn.close()
+
+    return render_template('register.html')
+
 
 # -------------------------
 # Alerts helper (prevents duplicates within a timeframe)
@@ -385,35 +427,50 @@ def run_ml_scan():
 # -------------------------
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    next_url = request.args.get('next') or url_for('dashboard')
     if request.method == 'POST':
-        username = request.form.get('username', '')
-        password = request.form.get('password', '')
-        if ADMIN_USER and ADMIN_PASS and username == ADMIN_USER and password == ADMIN_PASS:
-            session['is_admin'] = True
-            session['admin_name'] = username
-            flash("Logged in as admin.", "success")
-            return redirect(request.form.get('next') or url_for('dashboard'))
-        else:
-            flash("Invalid credentials.", "error")
-            return render_template('login.html', next=next_url)
-    return render_template('login.html', next=next_url)
+        username = request.form['username'].strip()
+        password = request.form['password']
 
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT UserID, PasswordHash, Role
+            FROM users
+            WHERE Username=%s
+        """, (username,))
+        user = cur.fetchone()
+        cur.close()
+        conn.close()
+
+        if user and check_password_hash(user[1], password):
+            session['user_id'] = user[0]
+            session['username'] = username
+            session['role'] = user[2]
+            flash("Logged in successfully.", "success")
+            return redirect(url_for('dashboard'))
+        else:
+            flash("Invalid username or password.", "error")
+
+    return render_template('login.html')
 
 @app.route('/logout')
 def logout():
-    session.pop('is_admin', None)
-    session.pop('admin_name', None)
-    flash("Logged out.", "info")
-    return redirect(url_for('dashboard'))
+    session.clear()
+    flash("Logged out successfully.", "info")
+    return redirect(url_for('login'))
+
 
 # -------------------------
 # Dashboard routes + data
 # -------------------------
 @app.route('/')
+def root():
+    return redirect(url_for('login'))
+
 @app.route('/dashboard')
+@login_required
 def dashboard():
-    return render_template('dashboard.html', is_admin=session.get('is_admin', False))
+    return render_template('dashboard.html', is_admin=(session.get('role') == 'admin'))
 
 
 @app.route('/dashboard_data')
@@ -588,16 +645,25 @@ def dashboard_data():
     # 6) Load latest ML anomalies from anomaly_detection table (read-only)
     ml_anomalies = []
     try:
-        cursor.execute(
-            """
-            SELECT a.MachineID, m.MachineName, a.PerformanceID, a.AnomalyScore, a.Timestamp
+        cursor.execute("""
+            SELECT a.MachineID,
+                m.MachineName,
+                a.PerformanceID,
+                a.AnomalyScore,
+                a.Timestamp
             FROM anomaly_detection a
+            JOIN (
+                SELECT MachineID, MAX(Timestamp) AS latest_ts
+                FROM anomaly_detection
+                WHERE IsAnomaly = 1
+                GROUP BY MachineID
+            ) latest
+            ON a.MachineID = latest.MachineID
+            AND a.Timestamp = latest.latest_ts
             LEFT JOIN Machine m ON a.MachineID = m.MachineID
             WHERE a.IsAnomaly = 1
             ORDER BY a.Timestamp DESC
-            LIMIT 10
-            """
-        )
+        """)
         rows = cursor.fetchall()
         for r in rows:
             mid, mname, pid, score, ts = r
@@ -685,6 +751,7 @@ def dashboard_data():
 # Machines routes
 # -------------------------
 @app.route('/machines')
+@login_required
 def view_machines():
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -692,11 +759,12 @@ def view_machines():
     machines = cursor.fetchall()
     cursor.close()
     conn.close()
-    return render_template('machines.html', machines=machines, is_admin=session.get('is_admin', False))
+    return render_template('machines.html', machines=machines, is_admin=(session.get('role') == 'admin')
+)
 
 
 @app.route('/add_machine', methods=['GET', 'POST'])
-@admin_required
+
 def add_machine():
     message = ""
     if request.method == 'POST':
@@ -867,6 +935,7 @@ def delete_machine(mid):
 # Performance routes
 # -------------------------
 @app.route('/performance')
+@login_required
 def view_performance():
     update_oee_values()
     conn = get_db_connection()
@@ -883,8 +952,8 @@ def view_performance():
     cursor.close()
     conn.close()
     return render_template(
-        'performance.html', data=data, is_admin=session.get('is_admin', False)
-    )
+        'performance.html', data=data, is_admin=(session.get('role') == 'admin'))
+    
 
 
 @app.route('/add_performance', methods=['GET', 'POST'])
@@ -1005,6 +1074,7 @@ def modify_performance(pid):
 # Blockchain route
 # -------------------------
 @app.route('/blockchain')
+@login_required
 def view_blockchain():
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -1019,7 +1089,8 @@ def view_blockchain():
     cursor.close()
     conn.close()
     return render_template(
-        'blockchain.html', blocks=blocks, is_admin=session.get('is_admin', False)
+        'blockchain.html', blocks=blocks, is_admin=(session.get('role') == 'admin')
+
     )
 
 # -------------------------

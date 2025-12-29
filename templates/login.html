@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Admin Login{% endblock %}
+{% block title %}Login{% endblock %}
 
 {% block head %}
 <style>
@@ -42,12 +42,17 @@
     padding:8px 16px;
     border-radius:8px;
   }
+
+  .register-link {
+    margin-top:14px;
+    text-align:center;
+  }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="login-box">
-  <h2>Admin login</h2>
+  <h2>Login</h2>
 
   <form method="post">
     <input type="hidden" name="next" value="{{ next }}">
@@ -60,8 +65,13 @@
 
     <div class="login-actions">
       <a class="btn cancel" href="{{ url_for('dashboard') }}">Cancel</a>
-      <button class="btn" type="submit">Sign in</button>
+      <button class="btn primary-btn" type="submit">Sign in</button>
     </div>
   </form>
+
+  <div class="register-link">
+    Don't have an account?
+    <a href="{{ url_for('register') }}">Register here</a>
+  </div>
 </div>
 {% endblock %}
