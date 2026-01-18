@@ -300,6 +300,118 @@ def update_oee_values():
         cursor.close()
         conn.close()
 
+
+# -------------------------
+# Report helpers
+# -------------------------
+def fetch_report_extras(machine_ids):
+    """Fetch predictive anomalies, alerts, and maintenance for selected machines."""
+    if not machine_ids:
+        return [], [], []
+
+    placeholders = ','.join(['%s'] * len(machine_ids))
+    params = tuple(machine_ids)
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Machine info map
+        cursor.execute(
+            f"""
+            SELECT MachineID, MachineName, Location
+            FROM Machine
+            WHERE MachineID IN ({placeholders})
+            """,
+            params,
+        )
+        machine_info = {}
+        for mid, name, loc in cursor.fetchall():
+            machine_info[mid] = {
+                'name': name,
+                'location': loc if loc not in (None, '') else 'N/A'
+            }
+
+        # Predictive anomalies (latest per machine)
+        cursor.execute(
+            f"""
+            SELECT a.MachineID, m.MachineName, m.Location, a.AnomalyScore, a.Timestamp
+            FROM anomaly_detection a
+            JOIN Machine m ON a.MachineID = m.MachineID
+            WHERE a.IsAnomaly = 1 AND a.MachineID IN ({placeholders})
+            ORDER BY a.Timestamp DESC
+            """,
+            params,
+        )
+        anomalies = []
+        seen_machines = set()
+        for mid, name, loc, score, ts in cursor.fetchall():
+            if mid in seen_machines:
+                continue
+            seen_machines.add(mid)
+            severity = 'HIGH' if float(score) < -0.25 else 'MEDIUM' if float(score) < -0.15 else 'LOW'
+            anomalies.append({
+                'machine': name,
+                'location': loc if loc not in (None, '') else 'N/A',
+                'score': round(float(score), 3),
+                'severity': severity,
+                'time': ts.strftime('%Y-%m-%d %H:%M') if ts else ''
+            })
+
+        # Recent alerts (latest per machine)
+        cursor.execute(
+            f"""
+            SELECT al.MachineID, m.MachineName, m.Location, al.AlertMessage, al.Severity, al.Timestamp
+            FROM Alerts al
+            JOIN Machine m ON al.MachineID = m.MachineID
+            WHERE al.MachineID IN ({placeholders})
+            ORDER BY al.Timestamp DESC
+            """,
+            params,
+        )
+        alerts = []
+        seen_alerts = set()
+        for mid, name, loc, msg, severity, ts in cursor.fetchall():
+            if mid in seen_alerts:
+                continue
+            seen_alerts.add(mid)
+            alerts.append({
+                'machine': name,
+                'location': loc if loc not in (None, '') else 'N/A',
+                'message': msg,
+                'severity': severity if severity else 'MEDIUM',
+                'time': ts.strftime('%Y-%m-%d %H:%M') if ts else ''
+            })
+
+        # Maintenance logs (active/pending latest per machine)
+        cursor.execute(
+            f"""
+            SELECT ml.MachineID, m.MachineName, m.Location, ml.IssueDescription, ml.Status, ml.MaintenanceDate
+            FROM maintenance_log ml
+            JOIN Machine m ON ml.MachineID = m.MachineID
+            WHERE ml.MachineID IN ({placeholders}) AND ml.Status IN ('PENDING', 'ACTIVE')
+            ORDER BY ml.MaintenanceDate DESC
+            """,
+            params,
+        )
+        maintenance = []
+        seen_maint = set()
+        for mid, name, loc, issue, status, dt in cursor.fetchall():
+            if mid in seen_maint:
+                continue
+            seen_maint.add(mid)
+            maintenance.append({
+                'machine': name,
+                'location': loc if loc not in (None, '') else 'N/A',
+                'issue': issue,
+                'status': status,
+                'date': dt.strftime('%Y-%m-%d %H:%M') if dt else ''
+            })
+
+        return anomalies, alerts, maintenance
+    finally:
+        cursor.close()
+        conn.close()
+
 # -------------------------
 # ML scan helper (manual trigger only)
 # -------------------------
@@ -1229,6 +1341,7 @@ def performance_report():
         # Store report in session for PDF export
         session['report_data'] = report_data
         session['selected_metrics'] = selected_metrics
+        session['selected_machine_ids'] = machine_ids
         
         cursor.close()
         conn.close()
@@ -1246,10 +1359,18 @@ def performance_report_view():
     """Display the generated report"""
     report_data = session.get('report_data', [])
     selected_metrics = session.get('selected_metrics', [])
+    selected_machine_ids = session.get('selected_machine_ids', [])
     
     if not report_data:
         flash("No report data available. Please generate a report first.", "error")
         return redirect(url_for('performance_report'))
+
+    # Fallback: derive machine ids from report data if not in session
+    if not selected_machine_ids:
+        selected_machine_ids = [item.get('machine_id') for item in report_data if item.get('machine_id')]
+    
+    # Fetch extra report context (anomalies, alerts, maintenance)
+    report_anomalies, report_alerts, report_maintenance = fetch_report_extras(selected_machine_ids)
     
     # Generate timestamp for report display
     generated_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -1257,6 +1378,9 @@ def performance_report_view():
     return render_template('report_view.html', 
                          report_data=report_data, 
                          selected_metrics=selected_metrics,
+                         report_anomalies=report_anomalies,
+                         report_alerts=report_alerts,
+                         report_maintenance=report_maintenance,
                          generated_at=generated_at,
                          is_admin=(session.get('role') == 'admin'))
 
@@ -1267,10 +1391,18 @@ def performance_report_pdf():
     """Generate and download PDF report"""
     report_data = session.get('report_data', [])
     selected_metrics = session.get('selected_metrics', [])
+    selected_machine_ids = session.get('selected_machine_ids', [])
     
     if not report_data:
         flash("No report data available. Please generate a report first.", "error")
         return redirect(url_for('performance_report'))
+
+    if not selected_machine_ids:
+        selected_machine_ids = [item.get('machine_id') for item in report_data if item.get('machine_id')]
+
+    report_anomalies, report_alerts, report_maintenance = fetch_report_extras(selected_machine_ids)
+    
+    report_anomalies, report_alerts, report_maintenance = fetch_report_extras(selected_machine_ids)
     
     # Create PDF
     pdf = FPDF()
@@ -1348,6 +1480,75 @@ def performance_report_pdf():
             pdf.ln(2)
         
         pdf.ln(5)
+
+    # Predictive Anomalies section
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 10, "Predictive Anomalies", ln=True)
+    pdf.set_font("Arial", "B", 10)
+    pdf.cell(40, 8, "Machine", border=1)
+    pdf.cell(40, 8, "Location", border=1)
+    pdf.cell(35, 8, "Anomaly Score", border=1)
+    pdf.cell(30, 8, "Severity", border=1)
+    pdf.cell(45, 8, "Time", border=1)
+    pdf.ln()
+    pdf.set_font("Arial", "", 10)
+    if report_anomalies:
+        for row in report_anomalies:
+            pdf.cell(40, 8, row['machine'], border=1)
+            pdf.cell(40, 8, row['location'], border=1)
+            pdf.cell(35, 8, str(row['score']), border=1)
+            pdf.cell(30, 8, row['severity'], border=1)
+            pdf.cell(45, 8, row['time'], border=1)
+            pdf.ln()
+    else:
+        pdf.cell(0, 8, "None detected for selected machines", border=1, ln=True)
+    pdf.ln(5)
+
+    # Recent Alerts section
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 10, "Recent Alerts", ln=True)
+    pdf.set_font("Arial", "B", 10)
+    pdf.cell(40, 8, "Machine", border=1)
+    pdf.cell(40, 8, "Location", border=1)
+    pdf.cell(50, 8, "Alert Message", border=1)
+    pdf.cell(25, 8, "Severity", border=1)
+    pdf.cell(35, 8, "Time", border=1)
+    pdf.ln()
+    pdf.set_font("Arial", "", 10)
+    if report_alerts:
+        for row in report_alerts:
+            pdf.cell(40, 8, row['machine'], border=1)
+            pdf.cell(40, 8, row['location'], border=1)
+            pdf.cell(50, 8, row['message'][:30] if row['message'] else '', border=1)
+            pdf.cell(25, 8, row['severity'], border=1)
+            pdf.cell(35, 8, row['time'], border=1)
+            pdf.ln()
+    else:
+        pdf.cell(0, 8, "None detected for selected machines", border=1, ln=True)
+    pdf.ln(5)
+
+    # Maintenance Logs section
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 10, "Maintenance Logs", ln=True)
+    pdf.set_font("Arial", "B", 10)
+    pdf.cell(40, 8, "Machine", border=1)
+    pdf.cell(40, 8, "Location", border=1)
+    pdf.cell(55, 8, "Issue", border=1)
+    pdf.cell(25, 8, "Status", border=1)
+    pdf.cell(30, 8, "Date", border=1)
+    pdf.ln()
+    pdf.set_font("Arial", "", 10)
+    if report_maintenance:
+        for row in report_maintenance:
+            pdf.cell(40, 8, row['machine'], border=1)
+            pdf.cell(40, 8, row['location'], border=1)
+            pdf.cell(55, 8, row['issue'][:35] if row['issue'] else '', border=1)
+            pdf.cell(25, 8, row['status'], border=1)
+            pdf.cell(30, 8, row['date'], border=1)
+            pdf.ln()
+    else:
+        pdf.cell(0, 8, "None detected for selected machines", border=1, ln=True)
+    pdf.ln(5)
     
     # Output PDF to bytes
     pdf_output = pdf.output(dest='S').encode('latin-1')

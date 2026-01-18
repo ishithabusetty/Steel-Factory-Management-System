@@ -187,6 +187,45 @@
   color: #6c757d;
   font-size: 0.9em;
 }
+
+.table-section {
+  margin-top: 24px;
+}
+
+.table-section h4 {
+  margin-bottom: 10px;
+  color: var(--primary);
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 8px;
+}
+
+.data-table th {
+  text-align: left;
+  padding: 10px 12px;
+  background: #e2e1fc;
+  color: var(--primary);
+}
+
+.data-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.badge {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-weight: 700;
+  font-size: 0.85em;
+  text-transform: uppercase;
+}
+
+.badge-high { background: #f8d7da; color: #721c24; }
+.badge-medium { background: #fff3cd; color: #856404; }
+.badge-low { background: #d4edda; color: #155724; }
 </style>
 {% endblock %}
 
@@ -284,6 +323,105 @@
       {% endif %}
     </div>
     {% endfor %}
+    
+    <!-- Predictive Anomalies -->
+    <div class="table-section">
+      <h4>Predictive Anomalies</h4>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Machine</th>
+            <th>Location</th>
+            <th>Anomaly Score</th>
+            <th>Severity</th>
+            <th>Time</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if report_anomalies %}
+            {% for row in report_anomalies %}
+            <tr>
+              <td>{{ row.machine }}</td>
+              <td>{{ row.location }}</td>
+              <td>{{ row.score }}</td>
+              <td>
+                {% set sev = row.severity %}
+                <span class="badge {% if sev=='HIGH' %}badge-high{% elif sev=='MEDIUM' %}badge-medium{% else %}badge-low{% endif %}">{{ sev }}</span>
+              </td>
+              <td>{{ row.time }}</td>
+            </tr>
+            {% endfor %}
+          {% else %}
+            <tr><td colspan="5" style="text-align:center;color:#6c757d">None detected for selected machines</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Recent Alerts -->
+    <div class="table-section">
+      <h4>Recent Alerts</h4>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Machine</th>
+            <th>Location</th>
+            <th>Alert Message</th>
+            <th>Severity</th>
+            <th>Time</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if report_alerts %}
+            {% for row in report_alerts %}
+            <tr>
+              <td>{{ row.machine }}</td>
+              <td>{{ row.location }}</td>
+              <td>{{ row.message }}</td>
+              <td>
+                {% set sev = row.severity %}
+                <span class="badge {% if sev=='HIGH' %}badge-high{% elif sev=='MEDIUM' %}badge-medium{% else %}badge-low{% endif %}">{{ sev }}</span>
+              </td>
+              <td>{{ row.time }}</td>
+            </tr>
+            {% endfor %}
+          {% else %}
+            <tr><td colspan="5" style="text-align:center;color:#6c757d">None detected for selected machines</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Maintenance Logs -->
+    <div class="table-section">
+      <h4>Maintenance Logs</h4>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Machine</th>
+            <th>Location</th>
+            <th>Issue</th>
+            <th>Status</th>
+            <th>Date</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if report_maintenance %}
+            {% for row in report_maintenance %}
+            <tr>
+              <td>{{ row.machine }}</td>
+              <td>{{ row.location }}</td>
+              <td>{{ row.issue }}</td>
+              <td>{{ row.status }}</td>
+              <td>{{ row.date }}</td>
+            </tr>
+            {% endfor %}
+          {% else %}
+            <tr><td colspan="5" style="text-align:center;color:#6c757d">None detected for selected machines</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
   {% else %}
     <div class="no-data">
       <p>No report data available. Please generate a report first.</p>
