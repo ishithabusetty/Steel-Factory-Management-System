@@ -4,7 +4,10 @@
 <div class="card">
   <div style="display:flex;justify-content:space-between;align-items:center">
     <h2 style="margin:0">Performance Records</h2>
-    {% if is_admin %}<a class="btn" href="{{ url_for('add_performance') }}">➕ Add Performance</a>{% endif %}
+    <div style="display:flex;gap:8px;">
+      {% if is_admin %}<a class="btn" href="{{ url_for('add_performance') }}">➕ Add Performance</a>{% endif %}
+      <a class="btn" href="{{ url_for('performance_report') }}">📊 Generate Performance Report</a>
+    </div>
   </div>
 
   <div style="margin-top:12px;overflow:auto">

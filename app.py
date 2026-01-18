@@ -6,7 +6,7 @@ Option A: ML runs ONLY via manual scan (/run_anomaly_scan). No ML inside /dashbo
 """
 from werkzeug.security import generate_password_hash, check_password_hash
 
-from flask import Flask, render_template, request, redirect, session, url_for, flash, jsonify
+from flask import Flask, render_template, request, redirect, session, url_for, flash, jsonify, send_file
 import mysql.connector
 import hashlib
 import os
@@ -14,6 +14,8 @@ from dotenv import load_dotenv
 from functools import wraps
 from datetime import datetime
 import logging
+from fpdf import FPDF
+import io
 
 # Optional ML imports
 try:
@@ -1069,6 +1071,297 @@ def modify_performance(pid):
     conn.close()
     return render_template('modify_performance.html', data=row, is_admin=True, message="")
 
+# -------------------------
+# Weekly Performance Report routes
+# -------------------------
+@app.route('/performance/report', methods=['GET', 'POST'])
+@login_required
+def performance_report():
+    """
+    GET: Show report generation form with machine and metric checkboxes
+    POST: Generate report and redirect to view
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Fetch all machines
+    cursor.execute("SELECT MachineID, MachineName FROM Machine ORDER BY MachineName")
+    machines = cursor.fetchall()
+    
+    if request.method == 'POST':
+        # Get selected machines and metrics
+        machine_ids = request.form.getlist('machine_ids')
+        selected_metrics = request.form.getlist('metrics')
+        
+        if not machine_ids:
+            flash("Please select at least one machine.", "error")
+            cursor.close()
+            conn.close()
+            return render_template('performance_report.html', machines=machines)
+        
+        if not selected_metrics:
+            flash("Please select at least one metric.", "error")
+            cursor.close()
+            conn.close()
+            return render_template('performance_report.html', machines=machines)
+        
+        # Convert to integers
+        machine_ids = [int(mid) for mid in machine_ids]
+        
+        # Build report data
+        report_data = []
+        
+        for machine_id in machine_ids:
+            # Get machine name
+            cursor.execute("SELECT MachineName FROM Machine WHERE MachineID=%s", (machine_id,))
+            machine_row = cursor.fetchone()
+            machine_name = machine_row[0] if machine_row else f"Machine {machine_id}"
+            
+            # Fetch recent performance records (using PerformanceID as recency proxy)
+            # Fetch last 100 records for this machine to get recent data
+            cursor.execute("""
+                SELECT 
+                    p.OEE,
+                    p.OperatingTime,
+                    p.Downtime,
+                    p.ActualOutput,
+                    p.IdealOutput,
+                    p.GoodUnits,
+                    p.TotalUnits
+                FROM Performance_Data p
+                WHERE p.MachineID = %s
+                ORDER BY p.PerformanceID DESC
+                LIMIT 100
+            """, (machine_id,))
+            
+            performance_records = cursor.fetchall()
+            
+            # Calculate aggregates in Python
+            if performance_records:
+                oee_values = []
+                availability_values = []
+                performance_values = []
+                quality_values = []
+                downtime_total = 0
+                
+                for record in performance_records:
+                    oee = float(record[0] or 0)
+                    operating_time = float(record[1] or 0)
+                    downtime = float(record[2] or 0)
+                    actual_output = float(record[3] or 0)
+                    ideal_output = float(record[4] or 0)
+                    good_units = float(record[5] or 0)
+                    total_units = float(record[6] or 0)
+                    
+                    oee_values.append(oee)
+                    
+                    # Calculate availability
+                    planned = operating_time + downtime
+                    if planned > 0:
+                        availability_values.append((operating_time / planned) * 100)
+                    
+                    # Calculate performance
+                    if ideal_output > 0:
+                        performance_values.append((actual_output / ideal_output) * 100)
+                    
+                    # Calculate quality
+                    if total_units > 0:
+                        quality_values.append((good_units / total_units) * 100)
+                    
+                    downtime_total += downtime
+                
+                avg_oee = round(sum(oee_values) / len(oee_values), 2) if oee_values else 0
+                avg_availability = round(sum(availability_values) / len(availability_values), 2) if availability_values else 0
+                avg_performance = round(sum(performance_values) / len(performance_values), 2) if performance_values else 0
+                avg_quality = round(sum(quality_values) / len(quality_values), 2) if quality_values else 0
+                total_downtime = round(downtime_total, 2)
+            else:
+                avg_oee = avg_availability = avg_performance = avg_quality = total_downtime = 0
+            
+            # Fetch recent anomalies for this machine
+            cursor.execute("""
+                SELECT AnomalyScore, Timestamp
+                FROM anomaly_detection
+                WHERE MachineID = %s
+                  AND Timestamp >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+                ORDER BY Timestamp DESC
+                LIMIT 5
+            """, (machine_id,))
+            
+            anomalies = []
+            for anom_row in cursor.fetchall():
+                score = float(anom_row[0])
+                timestamp = anom_row[1].strftime("%Y-%m-%d %H:%M") if anom_row[1] else "N/A"
+                severity = "HIGH" if score < -0.25 else "MEDIUM" if score < -0.1 else "LOW"
+                anomalies.append({
+                    'score': round(score, 3),
+                    'timestamp': timestamp,
+                    'severity': severity
+                })
+            
+            # Check for pending maintenance
+            cursor.execute("""
+                SELECT IssueDescription
+                FROM maintenance_log
+                WHERE MachineID = %s AND Status = 'PENDING'
+                ORDER BY MaintenanceDate DESC
+                LIMIT 1
+            """, (machine_id,))
+            
+            maintenance_row = cursor.fetchone()
+            maintenance_reminder = maintenance_row[0] if maintenance_row else None
+            
+            # Build machine report
+            machine_report = {
+                'machine_id': machine_id,
+                'machine_name': machine_name,
+                'avg_oee': avg_oee,
+                'avg_availability': avg_availability,
+                'avg_performance': avg_performance,
+                'avg_quality': avg_quality,
+                'total_downtime': total_downtime,
+                'anomalies': anomalies,
+                'maintenance_reminder': maintenance_reminder
+            }
+            
+            report_data.append(machine_report)
+        
+        # Store report in session for PDF export
+        session['report_data'] = report_data
+        session['selected_metrics'] = selected_metrics
+        
+        cursor.close()
+        conn.close()
+        
+        return redirect(url_for('performance_report_view'))
+    
+    cursor.close()
+    conn.close()
+    return render_template('performance_report.html', machines=machines)
+
+
+@app.route('/performance/report/view')
+@login_required
+def performance_report_view():
+    """Display the generated report"""
+    report_data = session.get('report_data', [])
+    selected_metrics = session.get('selected_metrics', [])
+    
+    if not report_data:
+        flash("No report data available. Please generate a report first.", "error")
+        return redirect(url_for('performance_report'))
+    
+    # Generate timestamp for report display
+    generated_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    return render_template('report_view.html', 
+                         report_data=report_data, 
+                         selected_metrics=selected_metrics,
+                         generated_at=generated_at,
+                         is_admin=(session.get('role') == 'admin'))
+
+
+@app.route('/performance/report/pdf')
+@login_required
+def performance_report_pdf():
+    """Generate and download PDF report"""
+    report_data = session.get('report_data', [])
+    selected_metrics = session.get('selected_metrics', [])
+    
+    if not report_data:
+        flash("No report data available. Please generate a report first.", "error")
+        return redirect(url_for('performance_report'))
+    
+    # Create PDF
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+    
+    # Title
+    pdf.set_font("Arial", "B", 16)
+    pdf.cell(0, 10, "Weekly Performance Report", ln=True, align='C')
+    pdf.ln(5)
+    
+    pdf.set_font("Arial", "", 10)
+    pdf.cell(0, 8, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}", ln=True)
+    pdf.ln(5)
+    
+    # Iterate through each machine
+    for machine_data in report_data:
+        pdf.set_font("Arial", "B", 12)
+        pdf.cell(0, 10, f"Machine: {machine_data['machine_name']}", ln=True)
+        pdf.ln(2)
+        
+        # Metrics table
+        pdf.set_font("Arial", "B", 10)
+        pdf.cell(50, 8, "Metric", border=1)
+        pdf.cell(50, 8, "Value", border=1)
+        pdf.ln()
+        
+        pdf.set_font("Arial", "", 10)
+        
+        if 'oee' in selected_metrics:
+            pdf.cell(50, 8, "Avg OEE (%)", border=1)
+            pdf.cell(50, 8, str(machine_data['avg_oee']), border=1)
+            pdf.ln()
+        
+        if 'availability' in selected_metrics:
+            pdf.cell(50, 8, "Avg Availability (%)", border=1)
+            pdf.cell(50, 8, str(machine_data['avg_availability']), border=1)
+            pdf.ln()
+        
+        if 'performance' in selected_metrics:
+            pdf.cell(50, 8, "Avg Performance (%)", border=1)
+            pdf.cell(50, 8, str(machine_data['avg_performance']), border=1)
+            pdf.ln()
+        
+        if 'quality' in selected_metrics:
+            pdf.cell(50, 8, "Avg Quality (%)", border=1)
+            pdf.cell(50, 8, str(machine_data['avg_quality']), border=1)
+            pdf.ln()
+        
+        if 'downtime' in selected_metrics:
+            pdf.cell(50, 8, "Total Downtime (hrs)", border=1)
+            pdf.cell(50, 8, str(machine_data['total_downtime']), border=1)
+            pdf.ln()
+        
+        pdf.ln(3)
+        
+        # Anomalies
+        if machine_data['anomalies']:
+            pdf.set_font("Arial", "B", 10)
+            pdf.cell(0, 8, "Recent Anomalies:", ln=True)
+            pdf.set_font("Arial", "", 9)
+            
+            for anom in machine_data['anomalies']:
+                pdf.cell(0, 6, f"  - Score: {anom['score']}, Severity: {anom['severity']}, Time: {anom['timestamp']}", ln=True)
+            pdf.ln(2)
+        
+        # Maintenance reminder
+        if machine_data['maintenance_reminder']:
+            pdf.set_font("Arial", "B", 10)
+            pdf.set_text_color(255, 0, 0)
+            pdf.cell(0, 8, "Maintenance Required:", ln=True)
+            pdf.set_font("Arial", "", 9)
+            pdf.set_text_color(0, 0, 0)
+            pdf.multi_cell(0, 6, f"  {machine_data['maintenance_reminder']}")
+            pdf.ln(2)
+        
+        pdf.ln(5)
+    
+    # Output PDF to bytes
+    pdf_output = pdf.output(dest='S').encode('latin-1')
+    pdf_bytes = io.BytesIO(pdf_output)
+    pdf_bytes.seek(0)
+    
+    filename = f"weekly_performance_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+    
+    return send_file(
+        pdf_bytes,
+        mimetype='application/pdf',
+        as_attachment=True,
+        download_name=filename
+    )
 
 # -------------------------
 # Blockchain route

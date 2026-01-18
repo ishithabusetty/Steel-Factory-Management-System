@@ -1,0 +1,294 @@
+{% extends "base.html" %}
+{% block title %}Performance Report View{% endblock %}
+
+{% block head %}
+<style>
+.report-view-container {
+  max-width: 1200px;
+  margin: 20px auto;
+  background: white;
+  padding: 30px;
+  border-radius: 14px;
+  box-shadow: var(--card-shadow);
+}
+
+.report-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 30px;
+  padding-bottom: 15px;
+  border-bottom: 2px solid #e2e1fc;
+}
+
+.report-header h2 {
+  margin: 0;
+  color: var(--primary);
+}
+
+.report-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.btn {
+  padding: 12px 24px;
+  background: var(--primary);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+  text-decoration: none;
+  display: inline-block;
+  transition: background 0.2s;
+}
+
+.btn:hover {
+  background: var(--primary-dark);
+}
+
+.btn.secondary {
+  background: #6c757d;
+}
+
+.btn.secondary:hover {
+  background: #5a6268;
+}
+
+.machine-section {
+  margin-bottom: 40px;
+  padding: 20px;
+  background: #f8f9fa;
+  border-radius: 10px;
+  border-left: 4px solid var(--primary);
+}
+
+.machine-section h3 {
+  margin-top: 0;
+  color: var(--primary);
+  font-size: 1.4em;
+}
+
+.metrics-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 20px 0;
+  background: white;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.metrics-table th {
+  text-align: left;
+  padding: 12px 16px;
+  background: #e2e1fc;
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.metrics-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.metrics-table tr:last-child td {
+  border-bottom: none;
+}
+
+.metrics-table tr:hover {
+  background: #f8f9fa;
+}
+
+.metric-value {
+  font-weight: 600;
+  font-size: 1.1em;
+  color: #2c3e50;
+}
+
+.anomaly-section {
+  margin-top: 25px;
+  padding: 15px;
+  background: #fff3cd;
+  border-radius: 8px;
+  border-left: 4px solid #ffc107;
+}
+
+.anomaly-section h4 {
+  margin-top: 0;
+  color: #856404;
+}
+
+.anomaly-list {
+  list-style: none;
+  padding: 0;
+  margin: 10px 0 0 0;
+}
+
+.anomaly-item {
+  padding: 10px;
+  margin-bottom: 8px;
+  background: white;
+  border-radius: 6px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.severity-badge {
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 0.85em;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.severity-HIGH {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.severity-MEDIUM {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.severity-LOW {
+  background: #d1ecf1;
+  color: #0c5460;
+}
+
+.maintenance-alert {
+  margin-top: 25px;
+  padding: 15px;
+  background: #f8d7da;
+  border-radius: 8px;
+  border-left: 4px solid #dc3545;
+}
+
+.maintenance-alert h4 {
+  margin-top: 0;
+  color: #721c24;
+}
+
+.maintenance-alert p {
+  margin: 5px 0 0 0;
+  color: #721c24;
+}
+
+.no-data {
+  padding: 20px;
+  text-align: center;
+  color: #6c757d;
+  font-style: italic;
+}
+
+.timestamp {
+  color: #6c757d;
+  font-size: 0.9em;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="report-view-container">
+  <div class="report-header">
+    <div>
+      <h2>📊 Weekly Performance Report</h2>
+      <p class="timestamp">Generated: {{ generated_at }}</p>
+    </div>
+    <div class="report-actions">
+      <a href="{{ url_for('performance_report_pdf') }}" class="btn">📄 Download PDF</a>
+      <a href="{{ url_for('performance_report') }}" class="btn secondary">🔄 New Report</a>
+    </div>
+  </div>
+
+  {% if report_data %}
+    {% for machine in report_data %}
+    <div class="machine-section">
+      <h3>🏭 {{ machine.machine_name }}</h3>
+      
+      <!-- Metrics Table -->
+      <table class="metrics-table">
+        <thead>
+          <tr>
+            <th>Metric</th>
+            <th>Value</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if 'oee' in selected_metrics %}
+          <tr>
+            <td>Average OEE</td>
+            <td class="metric-value">{{ machine.avg_oee }}%</td>
+          </tr>
+          {% endif %}
+          
+          {% if 'availability' in selected_metrics %}
+          <tr>
+            <td>Average Availability</td>
+            <td class="metric-value">{{ machine.avg_availability }}%</td>
+          </tr>
+          {% endif %}
+          
+          {% if 'performance' in selected_metrics %}
+          <tr>
+            <td>Average Performance</td>
+            <td class="metric-value">{{ machine.avg_performance }}%</td>
+          </tr>
+          {% endif %}
+          
+          {% if 'quality' in selected_metrics %}
+          <tr>
+            <td>Average Quality</td>
+            <td class="metric-value">{{ machine.avg_quality }}%</td>
+          </tr>
+          {% endif %}
+          
+          {% if 'downtime' in selected_metrics %}
+          <tr>
+            <td>Total Downtime</td>
+            <td class="metric-value">{{ machine.total_downtime }} hours</td>
+          </tr>
+          {% endif %}
+        </tbody>
+      </table>
+
+      <!-- Anomalies Section -->
+      {% if machine.anomalies %}
+      <div class="anomaly-section">
+        <h4>⚠️ Recent Anomalies (Last 7 Days)</h4>
+        <ul class="anomaly-list">
+          {% for anomaly in machine.anomalies %}
+          <li class="anomaly-item">
+            <div>
+              <strong>Score:</strong> {{ anomaly.score }} 
+              <span style="margin-left: 15px;">
+                <strong>Time:</strong> {{ anomaly.timestamp }}
+              </span>
+            </div>
+            <span class="severity-badge severity-{{ anomaly.severity }}">{{ anomaly.severity }}</span>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+      <!-- Maintenance Alert -->
+      {% if machine.maintenance_reminder %}
+      <div class="maintenance-alert">
+        <h4>🔧 Maintenance Required</h4>
+        <p><strong>Issue:</strong> {{ machine.maintenance_reminder }}</p>
+        <p><em>This machine requires attention</em></p>
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  {% else %}
+    <div class="no-data">
+      <p>No report data available. Please generate a report first.</p>
+      <a href="{{ url_for('performance_report') }}" class="btn" style="margin-top: 15px;">Generate Report</a>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}
