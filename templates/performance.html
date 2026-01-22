@@ -7,6 +7,9 @@
     <div style="display:flex;gap:8px;">
       {% if is_admin %}<a class="btn" href="{{ url_for('add_performance') }}">➕ Add Performance</a>{% endif %}
       <a class="btn" href="{{ url_for('performance_report') }}">📊 Generate Performance Report</a>
+      <form action="{{ url_for('run_anomaly_scan_route') }}" method="POST" style="display:inline;">
+        <button type="submit" class="btn" style="background-color:#ff6b6b;">🔍 Run ML Scan</button>
+      </form>
     </div>
   </div>
 

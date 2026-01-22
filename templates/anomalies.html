@@ -10,10 +10,58 @@
 .badge-high { background:#ff4d4d; color:white; padding:4px 8px; border-radius:6px; }
 .badge-medium { background:#f4c542; color:white; padding:4px 8px; border-radius:6px; }
 .score-bad { color:#b30000; font-weight:700; }
+.info-banner {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 15px 20px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+.info-banner-icon {
+  font-size: 2em;
+}
+.verify-btn {
+  background: #10b981;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  margin-left: 12px;
+}
+.verify-btn:hover {
+  background: #059669;
+}
+#verification-result {
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: 6px;
+  display: none;
+}
+.verified { background: #d1fae5; color: #065f46; }
+.failed { background: #fee2e2; color: #991b1b; }
 </style>
 {% endblock %}
 
 {% block content %}
+<div class="info-banner">
+  <div class="info-banner-icon">🔒</div>
+  <div style="flex: 1;">
+    <strong>Blockchain-Secured Anomaly Detection</strong>
+    <p style="margin: 5px 0 0 0; font-size: 0.9em; opacity: 0.95;">
+      All anomalies are recorded in an immutable blockchain ledger for audit trail and tamper-proof verification.
+      Every ML scan creates permanent records in both MongoDB (analytics) and Blockchain (security).
+    </p>
+  </div>
+  <button class="verify-btn" onclick="verifyBlockchain()">🔍 Verify Blockchain</button>
+</div>
+
+<div id="verification-result"></div>
+
 <div class="table-box">
   <h2>ML Anomaly Detection Log</h2>
 <p class="muted">
@@ -35,6 +83,7 @@
         <th>Score</th>
         <th>Severity</th>
         <th>Timestamp</th>
+        <th>🔗 Chain</th>
       </tr>
     </thead>
     <tbody>
@@ -52,9 +101,48 @@
           {% endif %}
         </td>
         <td>{{ a.time }}</td>
+        <td>✅</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+  
+  <div style="margin-top: 20px; padding: 15px; background: #f8fafc; border-left: 4px solid #667eea; border-radius: 4px;">
+    <strong>📊 Data Flow:</strong> 
+    <span style="color: #64748b;">
+      Anomaly Detection → MySQL (current) → MongoDB (history) → Blockchain (immutable) → Alerts/Maintenance
+    </span>
+  </div>
 </div>
+
+<script>
+async function verifyBlockchain() {
+  const resultDiv = document.getElementById('verification-result');
+  resultDiv.style.display = 'block';
+  resultDiv.className = '';
+  resultDiv.innerHTML = '⏳ Verifying blockchain integrity...';
+  
+  try {
+    const response = await fetch('/verify_blockchain');
+    const data = await response.json();
+    
+    if (data.verified) {
+      resultDiv.className = 'verified';
+      resultDiv.innerHTML = `
+        <strong>✅ ${data.message}</strong><br>
+        <span style="font-size: 0.9em;">Total blocks verified: ${data.total_blocks}</span>
+      `;
+    } else {
+      resultDiv.className = 'failed';
+      resultDiv.innerHTML = `
+        <strong>⚠️ ${data.message}</strong><br>
+        <span style="font-size: 0.9em;">Corrupted blocks: ${data.corrupted_blocks.length}/${data.total_blocks}</span>
+      `;
+    }
+  } catch (error) {
+    resultDiv.className = 'failed';
+    resultDiv.innerHTML = '❌ Verification failed: ' + error.message;
+  }
+}
+</script>
 {% endblock %}

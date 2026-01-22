@@ -1,33 +1,275 @@
 {% extends "base.html" %}
 {% block title %}Blockchain Ledger{% endblock %}
+
+{% block head %}
+<style>
+.info-box {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 20px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+.info-box h3 {
+  margin-top: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.info-box ul {
+  margin: 10px 0;
+  padding-left: 20px;
+}
+.anomaly-row {
+  background-color: #fff3cd !important;
+  border-left: 4px solid #ff6b6b;
+}
+.anomaly-badge {
+  background: #ff6b6b;
+  color: white;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 0.85em;
+  font-weight: 600;
+}
+.performance-badge {
+  background: #10b981;
+  color: white;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 0.85em;
+  font-weight: 600;
+}
+.machine-badge {
+  background: #3b82f6;
+  color: white;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 0.85em;
+  font-weight: 600;
+}
+.verify-status {
+  margin-top: 15px;
+  padding: 12px;
+  border-radius: 6px;
+  display: none;
+}
+.verify-status.success {
+  background: #d1fae5;
+  color: #065f46;
+  border-left: 4px solid #10b981;
+}
+.verify-status.error {
+  background: #fee2e2;
+  color: #991b1b;
+  border-left: 4px solid #ef4444;
+}
+</style>
+{% endblock %}
+
 {% block content %}
+<div class="info-box">
+  <h3>🔗 Blockchain Ledger - Immutable Audit Trail</h3>
+  <p style="margin: 10px 0;">
+    This blockchain stores all critical events in an immutable, tamper-proof chain. Each block contains
+    a cryptographic hash linking it to the previous block, ensuring data integrity.
+  </p>
+  <ul>
+    <li><strong>🚨 Anomaly Blocks:</strong> ML-detected anomalies (highlighted in yellow)</li>
+    <li><strong>📊 Performance Blocks:</strong> Production metrics and OEE data</li>
+    <li><strong>⚙️ Machine Blocks:</strong> Equipment changes and modifications</li>
+  </ul>
+  <button onclick="verifyChain()" style="background: white; color: #667eea; border: none; padding: 10px 20px; border-radius: 6px; font-weight: 600; cursor: pointer; margin-top: 10px;">
+    🔍 Verify Blockchain Integrity
+  </button>
+  <div id="verify-status" class="verify-status"></div>
+</div>
+
 <div class="card">
   <h2>Blockchain Ledger (read-only)</h2>
+  {% if is_admin %}
+  <div style="margin:8px 0 0 0; display:flex; gap:8px; align-items:center;">
+    <button class="btn small" onclick="installGuards()">🛡️ Install DB Guards</button>
+    <span class="muted">(Prevents UPDATE/DELETE via DB triggers)</span>
+  </div>
+  {% endif %}
   <div style="margin-top:12px;overflow:auto">
     <table class="table">
       <thead>
         <tr>
           <th>BlockID</th>
+          <th>Type</th>
           <th>PerformanceID</th>
           <th>Hash</th>
           <th>PrevHash</th>
           <th style="width:350px;">Data</th>
           <th>Timestamp</th>
+          {% if is_admin %}<th>Actions</th>{% endif %}
         </tr>
       </thead>
       <tbody>
         {% for b in blocks %}
-        <tr>
+        {% set is_anomaly = 'ANOMALY' in (b[4] or '') %}
+        {% set is_machine = 'MACHINE' in (b[4] or '') or 'ADD_MACHINE' in (b[4] or '') %}
+        <tr class="{% if is_anomaly %}anomaly-row{% endif %}">
           <td>{{ b[0] }}</td>
-          <td>{{ b[1] }}</td>
-          <td style="word-break:break-all">{{ b[2] }}</td>
-          <td style="word-break:break-all">{{ b[3] }}</td>
+          <td>
+            {% if is_anomaly %}
+              <span class="anomaly-badge">🚨 ANOMALY</span>
+            {% elif is_machine %}
+              <span class="machine-badge">⚙️ MACHINE</span>
+            {% else %}
+              <span class="performance-badge">📊 PERFORMANCE</span>
+            {% endif %}
+          </td>
+          <td>{{ b[1] if b[1] else '-' }}</td>
+          <td style="word-break:break-all; font-family: monospace; font-size: 0.85em;">{{ b[2][:16] }}...</td>
+          <td style="word-break:break-all; font-family: monospace; font-size: 0.85em;">{{ b[3][:16] }}...</td>
           <td class="data-col">{{ b[4] }}</td>
           <td>{{ b[5] }}</td>
+          {% if is_admin %}
+          <td>
+            <button class="btn small" onclick="tamper({{ b[0] }})">🧪 Tamper</button>
+          </td>
+          {% endif %}
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+  
+  <div style="margin-top: 20px; padding: 15px; background: #f8fafc; border-radius: 6px; border-left: 4px solid #667eea;">
+    <strong>📈 Statistics:</strong>
+    <span style="color: #64748b;">
+      Total Blocks: {{ blocks|length }}
+      {% set anomaly_count = namespace(value=0) %}
+      {% set machine_count = namespace(value=0) %}
+      {% set performance_count = namespace(value=0) %}
+      {% for b in blocks %}
+        {% if 'ANOMALY' in (b[4] or '') %}
+          {% set anomaly_count.value = anomaly_count.value + 1 %}
+        {% elif 'MACHINE' in (b[4] or '') or 'ADD_MACHINE' in (b[4] or '') %}
+          {% set machine_count.value = machine_count.value + 1 %}
+        {% else %}
+          {% set performance_count.value = performance_count.value + 1 %}
+        {% endif %}
+      {% endfor %}
+      | <span style="color: #ff6b6b;">Anomalies: {{ anomaly_count.value }}</span>
+      | <span style="color: #10b981;">Performance: {{ performance_count.value }}</span>
+      | <span style="color: #3b82f6;">Machine Events: {{ machine_count.value }}</span>
+    </span>
+  </div>
 </div>
+
+<script>
+async function verifyChain() {
+  const statusDiv = document.getElementById('verify-status');
+  statusDiv.style.display = 'block';
+  statusDiv.className = 'verify-status';
+  statusDiv.innerHTML = '⏳ Verifying blockchain integrity...';
+  
+  try {
+    const response = await fetch('/verify_blockchain');
+    const data = await response.json();
+    
+    if (data.verified) {
+      statusDiv.className = 'verify-status success';
+      statusDiv.innerHTML = `
+        <strong>✅ Blockchain Integrity Verified</strong><br>
+        <span style="font-size: 0.9em;">
+          All ${data.total_blocks} blocks verified successfully. Hash chain is intact and data is tamper-proof.
+        </span>
+      `;
+    } else {
+      statusDiv.className = 'verify-status error';
+      statusDiv.innerHTML = `
+        <strong>⚠️ Blockchain Corruption Detected</strong><br>
+        <span style="font-size: 0.9em;">
+          Found ${data.corrupted_blocks.length} corrupted blocks out of ${data.total_blocks} total blocks.
+          Some records may have been tampered with.
+        </span>
+      `;
+    }
+  } catch (error) {
+    statusDiv.className = 'verify-status error';
+    statusDiv.innerHTML = '❌ Verification failed: ' + error.message;
+  }
+}
+
+async function installGuards() {
+  const statusDiv = document.getElementById('verify-status');
+  statusDiv.style.display = 'block';
+  statusDiv.className = 'verify-status';
+  statusDiv.innerHTML = '🛠️ Installing DB triggers...';
+  try {
+    const resp = await fetch('/install_blockchain_guards', { method: 'POST' });
+    const data = await resp.json();
+    if (data.status === 'success') {
+      statusDiv.className = 'verify-status success';
+      statusDiv.innerHTML = `✅ Guards installed: ${data.created.join(', ') || 'none (already present)'}`;
+    } else {
+      statusDiv.className = 'verify-status error';
+      statusDiv.innerHTML = '❌ Failed to install guards: ' + (data.error || 'Unknown error');
+    }
+  } catch (e) {
+    statusDiv.className = 'verify-status error';
+    statusDiv.innerHTML = '❌ Failed to install guards: ' + e.message;
+  }
+}
+
+async function tamper(blockId) {
+  const statusDiv = document.getElementById('verify-status');
+  statusDiv.style.display = 'block';
+  statusDiv.className = 'verify-status';
+  statusDiv.innerHTML = '🧪 Attempting tamper...';
+  try {
+    const resp = await fetch(`/tamper_blockchain/${blockId}`, { method: 'POST' });
+    const data = await resp.json();
+    if (data.status === 'blocked') {
+      statusDiv.className = 'verify-status success';
+      statusDiv.innerHTML = `🛡️ Tamper blocked by DB guards.<br/><small>${data.error || ''}</small>`;
+    } else if (data.status === 'tampered') {
+      if (data.verification && !data.verification.verified) {
+        statusDiv.className = 'verify-status error';
+        statusDiv.innerHTML = `
+          ⚠️ Tamper succeeded and corruption detected (${data.verification.corrupted_blocks.length}/${data.verification.total_blocks}).<br/>
+          <button class="btn small" onclick="repairChain()">🔧 Repair Blockchain</button>
+        `;
+      } else {
+        statusDiv.className = 'verify-status error';
+        statusDiv.innerHTML = '⚠️ Tamper succeeded, but verification returned unexpected result.';
+      }
+    } else {
+      statusDiv.className = 'verify-status error';
+      statusDiv.innerHTML = '❌ Unexpected response.';
+    }
+  } catch (e) {
+    statusDiv.className = 'verify-status error';
+    statusDiv.innerHTML = '❌ Tamper call failed: ' + e.message;
+  }
+}
+
+async function repairChain() {
+  const statusDiv = document.getElementById('verify-status');
+  statusDiv.style.display = 'block';
+  statusDiv.className = 'verify-status';
+  statusDiv.innerHTML = '🔧 Repairing blockchain...';
+  try {
+    const resp = await fetch('/repair_blockchain', { method: 'POST' });
+    const data = await resp.json();
+    if (data.status === 'success' && data.verified) {
+      statusDiv.className = 'verify-status success';
+      statusDiv.innerHTML = `✅ Repair complete. Total blocks: ${data.total_blocks}`;
+      // Optionally refresh the page to reload table
+      setTimeout(() => location.reload(), 800);
+    } else {
+      statusDiv.className = 'verify-status error';
+      statusDiv.innerHTML = '❌ Repair failed: ' + (data.error || 'Verification still failing');
+    }
+  } catch (e) {
+    statusDiv.className = 'verify-status error';
+    statusDiv.innerHTML = '❌ Repair request failed: ' + e.message;
+  }
+}
+</script>
 {% endblock %}

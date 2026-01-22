@@ -17,6 +17,15 @@ import logging
 from fpdf import FPDF
 import io
 
+# MongoDB imports
+try:
+    from pymongo import MongoClient
+    from pymongo.errors import ServerSelectionTimeoutError
+    MONGODB_AVAILABLE = True
+except ImportError:
+    MONGODB_AVAILABLE = False
+    logging.getLogger(__name__).warning("MongoDB not installed. Install with: pip install pymongo")
+
 # Optional ML imports
 try:
     import numpy as np
@@ -40,6 +49,10 @@ DB_USER = os.getenv("DB_USER", "root")
 DB_PASS = os.getenv("DB_PASS", "1A2b3c4@")
 DB_NAME = os.getenv("DB_NAME", "steel_factory_db")
 
+# MongoDB Configuration
+MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
+MONGODB_DB = os.getenv("MONGODB_DB", "steel_factory_nosql")
+
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
 
@@ -54,6 +67,25 @@ def get_db_connection():
         database=DB_NAME,
         autocommit=False
     )
+
+# -------------------------
+# MongoDB helper
+# -------------------------
+def get_mongo_db():
+    """Get MongoDB database connection"""
+    if not MONGODB_AVAILABLE:
+        return None
+    try:
+        client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=5000)
+        # Verify connection
+        client.admin.command('ping')
+        return client[MONGODB_DB]
+    except ServerSelectionTimeoutError:
+        logging.getLogger(__name__).warning("MongoDB connection failed. Make sure MongoDB is running.")
+        return None
+    except Exception as e:
+        logging.getLogger(__name__).warning("MongoDB error: %s", e)
+        return None
 
 # -------------------------
 # Hash generator
@@ -198,6 +230,86 @@ def add_maintenance(machine_id, issue, status="PENDING"):
             conn.close()
 
 # -------------------------
+# MongoDB logging helpers
+# -------------------------
+def log_anomaly_to_mongodb(machine_id, performance_id, anomaly_score, is_anomaly, machine_name=""):
+    """Log anomaly detection result to MongoDB"""
+    try:
+        db = get_mongo_db()
+        if db is None:
+            print(f"[MongoDB] get_mongo_db returned None, skipping anomaly log")
+            return False
+        
+        anomaly_log = {
+            "machine_id": machine_id,
+            "machine_name": machine_name,
+            "performance_id": performance_id,
+            "anomaly_score": float(anomaly_score),
+            "is_anomaly": bool(is_anomaly),
+            "timestamp": datetime.now(),
+            "log_level": "CRITICAL" if is_anomaly else "INFO"
+        }
+        
+        result = db.anomaly_logs.insert_one(anomaly_log)
+        print(f"[MongoDB] Anomaly log inserted: {result.inserted_id}")
+        return True
+    except Exception as e:
+        print(f"[MongoDB ERROR] anomaly_logs: {str(e)}")
+        logging.getLogger(__name__).warning("MongoDB anomaly log failed: %s", e)
+        return False
+
+def log_audit_to_mongodb(user_id, action, resource_type, resource_id, details=""):
+    """Log audit trail to MongoDB"""
+    try:
+        db = get_mongo_db()
+        if db is None:
+            print(f"[MongoDB] get_mongo_db returned None, skipping audit log")
+            return False
+        
+        audit_log = {
+            "user_id": user_id,
+            "action": action,  # e.g., "CREATE", "UPDATE", "DELETE", "RUN_SCAN"
+            "resource_type": resource_type,  # e.g., "MACHINE", "PERFORMANCE", "ANOMALY"
+            "resource_id": resource_id,
+            "details": details,
+            "timestamp": datetime.now(),
+            "ip_address": request.remote_addr if request else "Unknown"
+        }
+        
+        result = db.audit_logs.insert_one(audit_log)
+        print(f"[MongoDB] Audit log inserted: {result.inserted_id}")
+        return True
+    except Exception as e:
+        print(f"[MongoDB ERROR] audit_logs: {str(e)}")
+        logging.getLogger(__name__).warning("MongoDB audit log failed: %s", e)
+        return False
+
+def log_scan_session_to_mongodb(total_records, anomalies_detected, scan_duration_seconds):
+    """Log ML scan session to MongoDB"""
+    try:
+        db = get_mongo_db()
+        if db is None:
+            print(f"[MongoDB] get_mongo_db returned None, skipping scan session log")
+            return False
+        
+        scan_log = {
+            "total_records_scanned": total_records,
+            "anomalies_detected": anomalies_detected,
+            "scan_duration_seconds": scan_duration_seconds,
+            "timestamp": datetime.now(),
+            "user_id": session.get('user_id', 'system'),
+            "anomaly_rate": round(anomalies_detected / total_records * 100, 2) if total_records > 0 else 0
+        }
+        
+        result = db.scan_sessions.insert_one(scan_log)
+        print(f"[MongoDB] Scan session log inserted: {result.inserted_id}")
+        return True
+    except Exception as e:
+        print(f"[MongoDB ERROR] scan_sessions: {str(e)}")
+        logging.getLogger(__name__).warning("MongoDB scan session log failed: %s", e)
+        return False
+
+# -------------------------
 # Blockchain helpers
 # -------------------------
 def add_block_to_chain(performance_id, data_string):
@@ -271,31 +383,25 @@ def update_oee_values():
             pid = r[0]
             ot = float(r[1] or 0)
             down = float(r[2] or 0)
-            ao = int(r[3] or 0)
-            io = int(r[4] or 0)
-            gu = int(r[5] or 0)
-            tu = int(r[6] or 0)
+            ao = float(r[3] or 0)
+            io = float(r[4] or 0)
+            gu = float(r[5] or 0)
+            tu = float(r[6] or 0)
 
             planned = ot + down
             if planned <= 0 or io <= 0 or tu <= 0:
                 oee = 0.0
             else:
-                availability = ot / planned if planned > 0 else 0
-                performance = (ao / io) if io > 0 else 0
-                quality = (gu / tu) if tu > 0 else 0
-                oee = availability * performance * quality * 100
+                availability = (ot / planned) if planned > 0 else 0.0
+                performance = (ao / io) if io > 0 else 0.0
+                quality = (gu / tu) if tu > 0 else 0.0
+                oee = max(0.0, min(availability * performance * quality * 100.0, 100.0))
 
             cursor.execute(
                 "UPDATE Performance_Data SET OEE=%s WHERE PerformanceID=%s",
-                (oee, pid),
+                (round(float(oee), 2), pid),
             )
         conn.commit()
-    except Exception as e:
-        logging.getLogger(__name__).warning("update_oee_values failed: %s", e)
-        try:
-            conn.rollback()
-        except Exception:
-            pass
     finally:
         cursor.close()
         conn.close()
@@ -427,6 +533,9 @@ def run_ml_scan():
         logging.getLogger(__name__).warning("ML not available, skipping scan.")
         return 0, 0  # total rows, anomaly count
 
+    import time
+    scan_start_time = time.time()
+    
     conn = get_db_connection()
     cursor = conn.cursor()
 
@@ -518,8 +627,33 @@ def run_ml_scan():
                         add_maintenance(mid, f"{mname}: Predicted failure risk - HIGH")
                     except Exception as e:
                         logging.getLogger(__name__).warning("add_maintenance from scan failed: %s", e)
+                
+                # Log to MongoDB
+                try:
+                    log_anomaly_to_mongodb(mid, pid, score, is_anom, mname)
+                except Exception as e:
+                    logging.getLogger(__name__).warning("MongoDB anomaly log failed: %s", e)
+                
+                # Log to Blockchain for immutability
+                try:
+                    blockchain_data = (
+                        f"ANOMALY|MachineID={mid}|MachineName={mname}|"
+                        f"PerformanceID={pid}|Score={score:.4f}|Severity={severity}|"
+                        f"Timestamp={datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                    )
+                    add_block_to_chain(pid, blockchain_data)
+                except Exception as e:
+                    logging.getLogger(__name__).warning("Blockchain anomaly log failed: %s", e)
 
         conn.commit()
+        
+        # Log the entire scan session to MongoDB
+        scan_duration = time.time() - scan_start_time
+        try:
+            log_scan_session_to_mongodb(len(features), anomaly_count, scan_duration)
+        except Exception as e:
+            logging.getLogger(__name__).warning("MongoDB scan session log failed: %s", e)
+        
         logging.getLogger(__name__).info(
             "ML scan complete: %d rows, %d anomalies", len(features), anomaly_count
         )
@@ -759,25 +893,20 @@ def dashboard_data():
     # 6) Load latest ML anomalies from anomaly_detection table (read-only)
     ml_anomalies = []
     try:
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT a.MachineID,
-                m.MachineName,
-                a.PerformanceID,
-                a.AnomalyScore,
-                a.Timestamp
+                   m.MachineName,
+                   a.PerformanceID,
+                   a.AnomalyScore,
+                   a.Timestamp
             FROM anomaly_detection a
-            JOIN (
-                SELECT MachineID, MAX(Timestamp) AS latest_ts
-                FROM anomaly_detection
-                WHERE IsAnomaly = 1
-                GROUP BY MachineID
-            ) latest
-            ON a.MachineID = latest.MachineID
-            AND a.Timestamp = latest.latest_ts
             LEFT JOIN Machine m ON a.MachineID = m.MachineID
             WHERE a.IsAnomaly = 1
             ORDER BY a.Timestamp DESC
-        """)
+            LIMIT 100
+            """
+        )
         rows = cursor.fetchall()
         for r in rows:
             mid, mname, pid, score, ts = r
@@ -785,6 +914,8 @@ def dashboard_data():
             severity = "HIGH" if float(score) < -0.25 else "MEDIUM"
             ml_anomalies.append(
                 {
+                    "machine_id": mid,
+                    "performance_id": pid,
                     "machine": mname,
                     "issue": f"ML anomaly detected (score {float(score):.3f})",
                     "severity": severity,
@@ -796,11 +927,12 @@ def dashboard_data():
         logging.getLogger(__name__).warning("Fetch ml anomalies failed: %s", e)
         ml_anomalies = []
 
-    # dedupe ml anomalies by machine (keep latest)
-    dedup_ml = {}
-    for a in ml_anomalies:
-        dedup_ml[a["machine"]] = a
-    ml_final = list(dedup_ml.values())
+    # close cursor/connection
+    try:
+        cursor.close()
+        conn.close()
+    except Exception:
+        pass
 
     # 7) Maintenance list for dashboard (pending) - dedupe by machine name
     maintenance = []
@@ -834,13 +966,6 @@ def dashboard_data():
         logging.getLogger(__name__).warning("Fetch maintenance failed: %s", e)
         maintenance = []
 
-    # close cursor/connection
-    try:
-        cursor.close()
-        conn.close()
-    except Exception:
-        pass
-
     payload = {
         "oee_labels": oee_labels,
         "oee_values": oee_values,
@@ -854,7 +979,7 @@ def dashboard_data():
         "defective_units": defective_units,
         "factory_total_units": total_units,
         "anomalies": anomalies,            # simple OEE-based anomalies (fallback)
-        "ml_anomalies": ml_final,          # ML anomalies from anomaly_detection (deduped)
+        "ml_anomalies": ml_anomalies,      # ML anomalies from anomaly_detection (all recent)
         "recent_alerts": deduped_alerts,   # deduped alerts
         "maintenance": maintenance,        # deduped maintenance entries
     }
@@ -1586,6 +1711,200 @@ def view_blockchain():
         'blockchain.html', blocks=blocks, is_admin=(session.get('role') == 'admin')
 
     )
+def verify_blockchain_integrity():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT BlockID, Hash, PrevHash, Data
+        FROM blockchain_log
+        ORDER BY BlockID ASC
+        """
+    )
+    blocks = cursor.fetchall()
+    cursor.close()
+    conn.close()
+
+    if not blocks:
+        return True, [], 0
+
+    verified = True
+    corrupted_blocks = []
+
+    for i, block in enumerate(blocks):
+        block_id, hash_val, prev_hash, data = block
+
+        if i > 0:
+            expected_prev = blocks[i-1][1]
+            if prev_hash != expected_prev:
+                verified = False
+                corrupted_blocks.append({
+                    "block_id": block_id,
+                    "issue": "Broken chain - previous hash mismatch"
+                })
+
+        expected_hash = generate_hash((data or "") + (prev_hash or ""))
+        if hash_val != expected_hash:
+            verified = False
+            corrupted_blocks.append({
+                "block_id": block_id,
+                "issue": "Hash tampered - data integrity compromised"
+            })
+
+    return verified, corrupted_blocks, len(blocks)
+
+
+@app.route('/verify_blockchain')
+@login_required
+def verify_blockchain():
+    """Verify blockchain integrity by checking hash chain"""
+    verified, corrupted_blocks, total = verify_blockchain_integrity()
+    return jsonify({
+        "status": "success",
+        "verified": verified,
+        "total_blocks": total,
+        "corrupted_blocks": corrupted_blocks,
+        "message": "✅ Blockchain verified - all anomaly records are authentic" if verified else "⚠️ Blockchain corruption detected - some records may be tampered"
+    })
+
+@app.route('/install_blockchain_guards', methods=['POST'])
+@admin_required
+def install_blockchain_guards():
+    """Install DB triggers to block UPDATE/DELETE on blockchain_log."""
+    created = []
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SHOW TRIGGERS")
+        existing = {row[0] for row in cursor.fetchall()}  # Trigger name is first column
+
+        if 'blockchain_log_no_update' not in existing:
+            cursor.execute(
+                """
+                CREATE TRIGGER blockchain_log_no_update
+                BEFORE UPDATE ON blockchain_log
+                FOR EACH ROW
+                SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Blockchain is immutable: updates are not allowed';
+                """
+            )
+            created.append('update')
+
+        if 'blockchain_log_no_delete' not in existing:
+            cursor.execute(
+                """
+                CREATE TRIGGER blockchain_log_no_delete
+                BEFORE DELETE ON blockchain_log
+                FOR EACH ROW
+                SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Blockchain is immutable: deletes are not allowed';
+                """
+            )
+            created.append('delete')
+
+        conn.commit()
+        return jsonify({"status": "success", "created": created})
+    except Exception as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return jsonify({"status": "error", "error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.route('/tamper_blockchain/<int:block_id>', methods=['POST'])
+@admin_required
+def tamper_blockchain(block_id: int):
+    """Demo endpoint: attempts to tamper a block's Data; either blocked by triggers or causes verification failure."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            """
+            UPDATE blockchain_log
+            SET Data = CONCAT(Data, ' [TAMPERED ', NOW(), ']')
+            WHERE BlockID = %s
+            """,
+            (block_id,)
+        )
+        conn.commit()
+        tampered = True
+        blocked = False
+    except Exception as e:
+        # Likely blocked by trigger
+        tampered = False
+        blocked = True
+        err = str(e)
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        # Return early with blocked info
+        return jsonify({
+            "status": "blocked",
+            "blocked": True,
+            "error": err
+        })
+    finally:
+        cursor.close()
+        conn.close()
+
+    # If we reached here, tamper succeeded; verify should now fail
+    verified, corrupted_blocks, total = verify_blockchain_integrity()
+    return jsonify({
+        "status": "tampered",
+        "tampered": tampered,
+        "blocked": blocked,
+        "verification": {
+            "verified": verified,
+            "total_blocks": total,
+            "corrupted_blocks": corrupted_blocks
+        }
+    })
+
+@app.route('/repair_blockchain', methods=['POST'])
+@admin_required
+def repair_blockchain_route():
+    """Rebuild blockchain hashes in-place, preserving data and timestamps."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            """
+            SELECT BlockID, PerformanceID, Data, Timestamp
+            FROM blockchain_log
+            ORDER BY BlockID ASC
+            """
+        )
+        blocks = cursor.fetchall()
+
+        cursor.execute("DELETE FROM blockchain_log")
+        conn.commit()
+
+        prev_hash = "0"
+        for _, perf_id, data, ts in blocks:
+            new_hash = generate_hash((data or "") + (prev_hash or ""))
+            cursor.execute(
+                """
+                INSERT INTO blockchain_log (PerformanceID, Hash, PrevHash, Data, Timestamp)
+                VALUES (%s, %s, %s, %s, %s)
+                """,
+                (perf_id, new_hash, prev_hash, data, ts)
+            )
+            prev_hash = new_hash
+
+        conn.commit()
+        verified, corrupted_blocks, total = verify_blockchain_integrity()
+        return jsonify({"status": "success", "verified": verified, "total_blocks": total, "corrupted_blocks": corrupted_blocks})
+    except Exception as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return jsonify({"status": "error", "error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
 
 # -------------------------
 # Anomalies routes
@@ -1594,6 +1913,19 @@ def view_blockchain():
 @admin_required
 def run_anomaly_scan_route():
     total, anomalies = run_ml_scan()
+    
+    # Log to audit trail
+    try:
+        log_audit_to_mongodb(
+            user_id=session.get('user_id', 'unknown'),
+            action="RUN_SCAN",
+            resource_type="ANOMALY_DETECTION",
+            resource_id=0,
+            details=f"ML scan completed: {total} records scanned, {anomalies} anomalies detected"
+        )
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"Audit log failed: {e}")
+    
     flash(
         f"Anomaly scan completed on {total} records. Detected {anomalies} anomalies.",
         "info",
@@ -1642,8 +1974,99 @@ def view_anomalies():
     cursor.close()
     conn.close()
     return render_template(
-        'anomalies.html', anomalies=anomalies, is_admin=(session.get('role') == 'admin')
+        'anomalies.html', anomalies=anomalies, is_admin=session.get("is_admin", False)
     )
+
+# -------------------------
+# MongoDB Audit Log Routes
+# -------------------------
+@app.route('/audit_logs')
+@admin_required
+def view_audit_logs():
+    """View audit logs from MongoDB"""
+    try:
+        db = get_mongo_db()
+        if db is None:
+            flash("MongoDB not available", "warning")
+            return render_template('audit_logs.html', logs=[], total=0)
+        
+        # Get last 500 audit logs
+        logs = list(db.audit_logs.find().sort("timestamp", -1).limit(500))
+        
+        # Convert MongoDB ObjectId to string for JSON serialization
+        for log in logs:
+            log['_id'] = str(log['_id'])
+            log['timestamp'] = log['timestamp'].strftime("%Y-%m-%d %H:%M:%S") if log.get('timestamp') else ""
+        
+        return render_template('audit_logs.html', logs=logs, total=len(logs))
+    except Exception as e:
+        logging.getLogger(__name__).warning("audit_logs error: %s", e)
+        flash("Error loading audit logs", "error")
+        return render_template('audit_logs.html', logs=[], total=0)
+
+@app.route('/test_mongo')
+def test_mongo_connection():
+    """Test MongoDB connection (debug endpoint)"""
+    try:
+        db = get_mongo_db()
+        if db is None:
+            return jsonify({"status": "error", "message": "MongoDB not available"}), 500
+        
+        # Test ping
+        result = db.client.admin.command('ping')
+        
+        # Get collection stats
+        collections_info = {}
+        for coll_name in ['anomaly_logs', 'audit_logs', 'scan_sessions']:
+            collection = db[coll_name]
+            count = collection.count_documents({})
+            collections_info[coll_name] = count
+        
+        return jsonify({
+            "status": "connected",
+            "database": MONGODB_DB,
+            "uri": MONGODB_URI,
+            "collections": collections_info
+        }), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/mongodb_stats')
+@admin_required
+def mongodb_stats():
+    """View MongoDB statistics and collection info"""
+    try:
+        db = get_mongo_db()
+        if db is None:
+            flash("MongoDB not available", "warning")
+            return render_template('mongodb_stats.html', stats={}, collections={})
+        
+        # Get collection stats
+        collections_info = {}
+        for coll_name in ['anomaly_logs', 'audit_logs', 'scan_sessions']:
+            collection = db[coll_name]
+            count = collection.count_documents({})
+            collections_info[coll_name] = {
+                'count': count,
+                'latest': None
+            }
+            
+            # Get latest document
+            latest = collection.find_one(sort=[("timestamp", -1)])
+            if latest:
+                collections_info[coll_name]['latest'] = latest['timestamp'].strftime("%Y-%m-%d %H:%M:%S") if latest.get('timestamp') else ""
+        
+        stats = {
+            'mongodb_uri': MONGODB_URI.replace(MONGODB_URI.split('@')[0].split('://')[1], '***') if '@' in MONGODB_URI else MONGODB_URI,
+            'database': MONGODB_DB,
+            'collections': collections_info
+        }
+        
+        return render_template('mongodb_stats.html', stats=stats, collections=collections_info)
+    except Exception as e:
+        logging.getLogger(__name__).warning("mongodb_stats error: %s", e)
+        flash("Error loading MongoDB stats", "error")
+        return render_template('mongodb_stats.html', stats={}, collections={})
 
 # -------------------------
 # Run server

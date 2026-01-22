@@ -1,0 +1,107 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container">
+    <h2>📊 MongoDB Statistics & Health</h2>
+    <p>NoSQL database collections and document counts.</p>
+
+    <div style="background-color: #e8f4f8; padding: 20px; border-radius: 5px; margin-top: 20px;">
+        <h3>Connection Info</h3>
+        <p><strong>Database:</strong> {{ stats.database }}</p>
+        <p><strong>URI:</strong> <code>{{ stats.mongodb_uri }}</code></p>
+    </div>
+
+    <h3 style="margin-top: 30px;">Collections Overview</h3>
+    
+    {% if collections %}
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-top: 20px;">
+            
+            <!-- Anomaly Logs -->
+            <div style="border: 1px solid #ddd; padding: 20px; border-radius: 5px; background-color: #fff8f0;">
+                <h4>🔴 Anomaly Logs</h4>
+                <p><strong>Documents:</strong> {{ collections.anomaly_logs.count }}</p>
+                {% if collections.anomaly_logs.latest %}
+                    <p><strong>Latest Entry:</strong> {{ collections.anomaly_logs.latest }}</p>
+                {% else %}
+                    <p style="color: #999;">No entries yet</p>
+                {% endif %}
+                <p style="font-size: 0.9em; color: #666; margin-top: 10px;">Stores ML anomaly detection results</p>
+            </div>
+
+            <!-- Audit Logs -->
+            <div style="border: 1px solid #ddd; padding: 20px; border-radius: 5px; background-color: #f0f8f0;">
+                <h4>📋 Audit Logs</h4>
+                <p><strong>Documents:</strong> {{ collections.audit_logs.count }}</p>
+                {% if collections.audit_logs.latest %}
+                    <p><strong>Latest Entry:</strong> {{ collections.audit_logs.latest }}</p>
+                {% else %}
+                    <p style="color: #999;">No entries yet</p>
+                {% endif %}
+                <p style="font-size: 0.9em; color: #666; margin-top: 10px;">Tracks user actions and system changes</p>
+            </div>
+
+            <!-- Scan Sessions -->
+            <div style="border: 1px solid #ddd; padding: 20px; border-radius: 5px; background-color: #f0f0f8;">
+                <h4>⚙️ Scan Sessions</h4>
+                <p><strong>Documents:</strong> {{ collections.scan_sessions.count }}</p>
+                {% if collections.scan_sessions.latest %}
+                    <p><strong>Latest Entry:</strong> {{ collections.scan_sessions.latest }}</p>
+                {% else %}
+                    <p style="color: #999;">No entries yet</p>
+                {% endif %}
+                <p style="font-size: 0.9em; color: #666; margin-top: 10px;">ML scan execution history and metrics</p>
+            </div>
+        </div>
+    {% else %}
+        <div style="background-color: #f9f9f9; padding: 20px; border-radius: 5px; margin-top: 20px; color: #666;">
+            <p>No collections available. Run a scan or perform actions to populate the database.</p>
+        </div>
+    {% endif %}
+
+    <div style="background-color: #fffbe6; padding: 15px; border-radius: 5px; margin-top: 30px; border-left: 4px solid #ffc069;">
+        <h4>📌 Quick Links</h4>
+        <ul style="margin: 10px 0;">
+            <li><a href="{{ url_for('view_audit_logs') }}">View Audit Logs</a></li>
+            <li><a href="{{ url_for('view_anomalies') }}">View Anomalies</a></li>
+            <li><a href="{{ url_for('dashboard') }}">Back to Dashboard</a></li>
+        </ul>
+    </div>
+</div>
+
+<style>
+    .container {
+        max-width: 1000px;
+        margin: 30px auto;
+        padding: 20px;
+    }
+    
+    h2 {
+        color: #333;
+    }
+    
+    h3 {
+        color: #555;
+    }
+    
+    h4 {
+        margin-top: 0;
+        color: #333;
+    }
+    
+    code {
+        background-color: #f0f0f0;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-family: monospace;
+    }
+    
+    a {
+        color: #0066cc;
+        text-decoration: none;
+    }
+    
+    a:hover {
+        text-decoration: underline;
+    }
+</style>
+{% endblock %}

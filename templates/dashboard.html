@@ -6,22 +6,23 @@
   .stats-row { display:flex; gap:18px; margin-bottom:18px; }
   .stat { flex:1; padding:20px; background:#fff; border-radius:12px; text-align:center; box-shadow:var(--card-shadow); }
 
-  .charts { display:flex; gap:18px; margin-bottom:18px; }
-  .oee-box { flex:2; }
-  .pq-box { flex:1; }
+  .pulse-row { display:flex; gap:12px; margin-bottom:12px; flex-wrap:wrap; }
+  .pulse { flex:1; min-width:180px; background:#fff; border:1px solid rgba(120,92,255,0.08); border-radius:12px; padding:12px 14px; box-shadow:var(--card-shadow); display:flex; justify-content:space-between; align-items:center; }
+  .pulse .label { font-size:13px; color:var(--muted); }
+  .pulse .value { font-size:22px; font-weight:800; color:var(--accent-dark); }
+  .pill { padding:5px 10px; border-radius:999px; font-weight:700; font-size:12px; border:1px solid rgba(120,92,255,0.12); background:linear-gradient(90deg,#faf8ff,#f3eefc); color:#4c2a97; }
+
+  .charts { display:flex; gap:18px; margin-bottom:18px; flex-wrap:wrap; }
+  .oee-box { flex:2; min-width:320px; }
+  .pq-box { flex:1; min-width:260px; }
   .pq-box canvas { width:100%!important; aspect-ratio:1/1!important; }
 
   .machine-health { width:100%; }
 
-  .two-col { display:flex; gap:18px; margin-top:18px; }
-  .two-col > div { flex:1; }
+  .two-col { display:flex; gap:18px; margin-top:18px; flex-wrap:wrap; }
+  .two-col > div { flex:1; min-width:320px; }
 
-  .lav-card {
-    background:linear-gradient(180deg,#faf8ff,#f3eefc);
-    padding:16px;
-    border-radius:14px;
-    border:1px solid rgba(140,120,200,0.12);
-  }
+  .lav-card { background:linear-gradient(180deg,#faf8ff,#f3eefc); padding:16px; border-radius:14px; border:1px solid rgba(140,120,200,0.12); }
 
   .machine-card {
     background:white;
@@ -36,14 +37,6 @@
 
   .machine-stats { display:flex; gap:26px; }
   .machine-stat .big { font-weight:800; font-size:18px; color:var(--accent-dark); }
-
-  .extra-box {
-    margin-top:18px;
-    background:linear-gradient(180deg,#faf8ff,#f3eefc);
-    padding:18px;
-    border-radius:14px;
-    border:1px solid rgba(140,120,200,0.12);
-  }
 
   .list-item {
     background:white;
@@ -77,10 +70,20 @@
     color:#d7263d;
     font-weight:700;
   }
+
+  .action-links { display:flex; gap:10px; flex-wrap:wrap; margin:10px 0 0 0; }
+  .action-links a { text-decoration:none; padding:10px 12px; border-radius:10px; border:1px solid rgba(120,92,255,0.12); background:#f8f6ff; font-weight:700; color:#4c2a97; box-shadow:var(--card-shadow); }
 </style>
 {% endblock %}
 
 {% block content %}
+
+<div class="pulse-row">
+  <div class="pulse"><div><div class="label">Machines</div><div class="value" id="pulseMachines">--</div></div><span class="pill">Monitored</span></div>
+  <div class="pulse"><div><div class="label">Open Maintenance</div><div class="value" id="pulseMaint">--</div></div><span class="pill">Risk</span></div>
+  <div class="pulse"><div><div class="label">Active Alerts</div><div class="value" id="pulseAlerts">--</div></div><span class="pill">Live</span></div>
+  <div class="pulse"><div><div class="label">ML Anomalies</div><div class="value" id="pulseAnoms">--</div></div><span class="pill">Watch</span></div>
+</div>
 
 <div class="stats-row">
   <div class="stat"><div class="muted">Overall OEE</div><div id="factoryOee" class="num">--%</div><div id="factoryStatus" class="muted"></div></div>
@@ -109,21 +112,16 @@
   <h3>Machine Health Overview</h3>
   <div id="machinesList"></div>
 </div>
-<div class="charts" style="margin-top:18px">
-  <div class="card" style="flex:1">
-    <h3>OEE Scatter Plot</h3>
-    <canvas id="scatterChart"></canvas>
-  </div>
 
-  <div class="card" style="flex:1">
-    <h3>Anomaly Heatmap</h3>
-    <canvas id="heatmapChart"></canvas>
+<div class="card" style="margin-top:18px">
+  <h3>Quick Actions</h3>
+  <div class="action-links">
+    <a href="/anomalies">View anomalies</a>
+    <a href="/blockchain">Blockchain log</a>
+    <a href="/mongodb_stats">MongoDB stats</a>
+    <a href="/performance">Performance</a>
   </div>
-
-  <div class="card" style="flex:1">
-    <h3>Score Distribution</h3>
-    <canvas id="scoreChart"></canvas>
-  </div>
+  <div style="margin-top:10px" class="muted">Verify or repair the chain from the Blockchain page.</div>
 </div>
 
 
@@ -139,11 +137,6 @@
   </div>
 </div>
 
-<div class="extra-box">
-  <h3>Maintenance Log & Predicted Failures</h3>
-  <div id="extraList"></div>
-</div>
-
 {% endblock %}
 
 {% block scripts %}
@@ -153,6 +146,11 @@ async function loadDashboard(){
   const data = await r.json();
 
   // top stats
+  pulseMachines.innerText = data.machines_health.length;
+  pulseMaint.innerText = data.maintenance.length;
+  pulseAlerts.innerText = data.recent_alerts.length;
+  pulseAnoms.innerText = data.ml_anomalies.length;
+
   factoryOee.innerText = data.factory_avg_oee + '%';
   factoryStatus.innerText = data.factory_status.toUpperCase();
   avail.innerText = (calcAvg(data.availability)) + '%';
@@ -182,75 +180,6 @@ async function loadDashboard(){
     options:{cutout:'60%'}
   });
   // -------- OEE Scatter Plot --------
-if(window._scatter) window._scatter.destroy();
-window._scatter = new Chart(scatterChart.getContext('2d'), {
-  type: 'scatter',
-  data: {
-    datasets: [{
-      label: "OEE vs Actual Output",
-      data: data.oee_labels.map((id, i) => ({
-        x: data.performance[i],
-        y: data.oee_values[i]
-      }))
-    }]
-  },
-  options: {
-    scales: {
-      x: { title: { display: true, text: "Performance (%)" }},
-      y: { title: { display: true, text: "OEE (%)" }}
-    }
-  }
-});
-// -------- Anomaly Heatmap (bubble plot) --------
-if(window._heatmap) window._heatmap.destroy();
-
-const bubbleData = data.ml_anomalies.map(a => ({
-  x: Math.random() * 100,
-  y: a.score * -100,          // convert negative scores to positive heat
-  r: a.severity === "HIGH" ? 15 : 8
-}));
-
-window._heatmap = new Chart(heatmapChart.getContext('2d'), {
-  type: 'bubble',
-  data: {
-    datasets: [{
-      label: "Anomaly Heatmap",
-      data: bubbleData,
-      backgroundColor: bubbleData.map(b =>
-        b.r > 10 ? "rgba(255, 99, 132, 0.6)" : "rgba(255, 205, 86, 0.6)"
-      )
-    }]
-  },
-  options: {
-    plugins: { legend: { display: false }},
-    scales: { x: { display:false }, y: { title: { text:"Severity (derived)" } }}
-  }
-});
-// -------- Anomaly Score Histogram --------
-if(window._scoreChart) window._scoreChart.destroy();
-
-const scores = data.ml_anomalies.map(x => x.score);
-
-window._scoreChart = new Chart(scoreChart.getContext('2d'), {
-  type: 'bar',
-  data: {
-    labels: scores.map((s,i)=>"A"+(i+1)),
-    datasets: [{
-      label: "Anomaly Score",
-      data: scores,
-      backgroundColor: scores.map(s =>
-        s < -0.25 ? "rgba(255,99,132,0.7)" : "rgba(255,205,86,0.7)"
-      )
-    }]
-  },
-  options: {
-    scales: {
-      y: { title: { display: true, text:"Score" }},
-      x: { title: { display: true, text:"Anomalies" }}
-    }
-  }
-});
-
 
   // ---- Machines ----
   machinesList.innerHTML='';
@@ -282,7 +211,7 @@ window._scoreChart = new Chart(scoreChart.getContext('2d'), {
       <span class="${sev}">${a.severity}</span>
       <strong>${a.machine}</strong>
       <div>${a.issue}</div>
-      <small>${a.time}</small>
+      <small>Machine ID: ${a.machine_id ?? '-'} • Performance ID: ${a.performance_id ?? '-'} • ${a.time}</small>
     `;
     el.style.borderLeft="4px solid #F59E0B";
     anomalyList.appendChild(el);
@@ -302,34 +231,6 @@ window._scoreChart = new Chart(scoreChart.getContext('2d'), {
       <small>${a.time}</small>
     `;
     alertsList.appendChild(el);
-  });
-
-  // ---- Maintenance ----
-  extraList.innerHTML='';
-
-  // maintenance items
-  data.maintenance.forEach(m=>{
-    const el=document.createElement('div');
-    el.className='list-item';
-    el.innerHTML=`
-      <span class="badge badge-high">Attention</span>
-      <strong>${m.machine}</strong>
-      <div class="score-bad">${m.reason}</div>
-      <small>${m.date}</small>
-    `;
-    extraList.appendChild(el);
-  });
-
-  // ml anomalies also appear (but lighter styling)
-  data.ml_anomalies.forEach(m=>{
-    const el=document.createElement('div');
-    el.className='list-item';
-    el.innerHTML=`
-      <strong>${m.machine}</strong>
-      <div style="color:#6a0dad;font-weight:600">Score: ${m.score}</div>
-      <small>${m.time}</small>
-    `;
-    extraList.appendChild(el);
   });
 
 }
