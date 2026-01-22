@@ -1642,7 +1642,7 @@ def view_anomalies():
     cursor.close()
     conn.close()
     return render_template(
-        'anomalies.html', anomalies=anomalies, is_admin=session.get("is_admin", False)
+        'anomalies.html', anomalies=anomalies, is_admin=(session.get('role') == 'admin')
     )
 
 # -------------------------
