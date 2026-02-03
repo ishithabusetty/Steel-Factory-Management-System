@@ -1,0 +1,73 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container mt-5">
+    <h1 class="mb-4">⚙️ Maintenance Management</h1>
+    
+    {% if is_admin %}
+    <div class="mb-4">
+        <a href="{{ url_for('add_maintenance_route') }}" class="btn btn-success">+ Add Maintenance Record</a>
+    </div>
+    {% endif %}
+
+    {% if maintenance_records %}
+    <div class="table-responsive">
+        <table class="table table-striped table-hover">
+            <thead class="table-dark">
+                <tr>
+                    <th>Machine</th>
+                    <th>Issue Description</th>
+                    <th>Status</th>
+                    <th>Maintenance Date</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for record in maintenance_records %}
+                <tr>
+                    <td><strong>{{ record.machine_name }}</strong></td>
+                    <td>{{ record.issue_description }}</td>
+                    <td>
+                        {% if record.status == 'PENDING' %}
+                            <span class="badge bg-warning text-dark">🟡 PENDING</span>
+                        {% elif record.status == 'SCHEDULED' %}
+                            <span class="badge bg-info">🔵 SCHEDULED</span>
+                        {% elif record.status == 'ACTIVE' %}
+                            <span class="badge bg-danger">🔴 ACTIVE</span>
+                        {% elif record.status == 'COMPLETED' %}
+                            <span class="badge bg-success">✅ COMPLETED</span>
+                        {% else %}
+                            <span class="badge bg-secondary">{{ record.status }}</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ record.maintenance_date.strftime('%Y-%m-%d %H:%M') if record.maintenance_date else 'N/A' }}</td>
+                    <td>
+                        {% if is_admin %}
+                        <a href="{{ url_for('modify_maintenance', mid=record.maintenance_id) }}" class="btn btn-sm btn-primary">Edit</a>
+                        <form method="POST" action="{{ url_for('delete_maintenance', mid=record.maintenance_id) }}" style="display:inline;" onsubmit="return confirm('Are you sure?');">
+                            <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+                        </form>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="alert alert-info" role="alert">
+        📋 No maintenance records found. {% if is_admin %}<a href="{{ url_for('add_maintenance_route') }}">Add one now</a>{% endif %}
+    </div>
+    {% endif %}
+</div>
+
+<style>
+    .table {
+        margin-top: 20px;
+    }
+    .badge {
+        padding: 6px 12px;
+        font-size: 0.9rem;
+    }
+</style>
+{% endblock %}

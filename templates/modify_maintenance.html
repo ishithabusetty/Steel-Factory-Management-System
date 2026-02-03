@@ -1,0 +1,66 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container mt-5" style="max-width: 600px;">
+    <h1 class="mb-4">✏️ Edit Maintenance Record</h1>
+
+    {% if message %}
+    <div class="alert alert-warning">{{ message }}</div>
+    {% endif %}
+
+    <form method="POST" class="card p-4">
+        <div class="mb-3">
+            <label for="machine_id" class="form-label"><strong>Machine</strong></label>
+            <select class="form-control" id="machine_id" name="machine_id" required>
+                {% for mid, mname in machines %}
+                <option value="{{ mid }}" {% if mid == maintenance.machine_id %}selected{% endif %}>{{ mname }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="mb-3">
+            <label for="issue" class="form-label"><strong>Issue Description</strong></label>
+            <textarea class="form-control" id="issue" name="issue" rows="4" required>{{ maintenance.issue_description }}</textarea>
+        </div>
+
+        <div class="mb-3">
+            <label for="status" class="form-label"><strong>Status</strong></label>
+            <select class="form-control" id="status" name="status" required>
+                <option value="PENDING" {% if maintenance.status == 'PENDING' %}selected{% endif %}>🟡 PENDING</option>
+                <option value="SCHEDULED" {% if maintenance.status == 'SCHEDULED' %}selected{% endif %}>🔵 SCHEDULED</option>
+                <option value="ACTIVE" {% if maintenance.status == 'ACTIVE' %}selected{% endif %}>🔴 ACTIVE</option>
+                <option value="COMPLETED" {% if maintenance.status == 'COMPLETED' %}selected{% endif %}>✅ COMPLETED</option>
+            </select>
+        </div>
+
+        <div class="mb-3">
+            <label for="maintenance_date" class="form-label"><strong>Maintenance Date</strong></label>
+            <input type="datetime-local" class="form-control" id="maintenance_date" name="maintenance_date" 
+                   value="{{ maintenance.maintenance_date.strftime('%Y-%m-%dT%H:%M') if maintenance.maintenance_date else '' }}" required>
+        </div>
+
+        <div class="alert alert-danger mt-4 p-3">
+            <strong>⚠️ Admin Override Required</strong>
+            <div class="mt-2">
+                <label for="override_password" class="form-label">Master Password</label>
+                <input type="password" class="form-control" id="override_password" name="override_password" placeholder="Enter admin override password" required>
+            </div>
+        </div>
+
+        <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+            <a href="{{ url_for('view_maintenance') }}" class="btn btn-secondary">Cancel</a>
+            <button type="submit" class="btn btn-primary">💾 Update Maintenance</button>
+        </div>
+    </form>
+</div>
+
+<style>
+    .card {
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    form {
+        background-color: #f9f9f9;
+    }
+</style>
+{% endblock %}

@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}Alerts{% endblock %}
+
+{% block head %}
+<style>
+.table-box {
+  background:white; padding:20px; border-radius:10px; 
+  box-shadow:var(--card-shadow); margin-top:20px;
+}
+.badge-high { background:#ff4d4d; color:white; padding:4px 8px; border-radius:6px; font-weight:600; }
+.badge-medium { background:#f4c542; color:white; padding:4px 8px; border-radius:6px; font-weight:600; }
+.badge-low { background:#10b981; color:white; padding:4px 8px; border-radius:6px; font-weight:600; }
+.info-banner {
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  color: white;
+  padding: 15px 20px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+.info-banner-icon {
+  font-size: 2em;
+}
+.alert-card {
+  background: white;
+  padding: 16px;
+  border-radius: 8px;
+  border-left: 4px solid #f5576c;
+  margin-bottom: 12px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+.alert-card.high {
+  border-left-color: #ff4d4d;
+  background: linear-gradient(to right, rgba(255,77,77,0.05), white);
+}
+.alert-card.medium {
+  border-left-color: #f4c542;
+  background: linear-gradient(to right, rgba(244,197,66,0.05), white);
+}
+.alert-card.low {
+  border-left-color: #10b981;
+  background: linear-gradient(to right, rgba(16,185,129,0.05), white);
+}
+.alert-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.alert-machine {
+  font-weight: 700;
+  font-size: 1.1em;
+  color: #1a202c;
+}
+.alert-message {
+  color: #4a5568;
+  margin: 8px 0;
+  font-size: 0.95em;
+}
+.alert-meta {
+  color: #a0aec0;
+  font-size: 0.85em;
+}
+.empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  color: #718096;
+}
+.empty-state-icon {
+  font-size: 3em;
+  margin-bottom: 16px;
+  opacity: 0.5;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="info-banner">
+  <div class="info-banner-icon">🚨</div>
+  <div style="flex: 1;">
+    <strong>Machine Alerts & Notifications</strong>
+    <p style="margin: 5px 0 0 0; font-size: 0.9em; opacity: 0.95;">
+      Real-time alerts from the factory floor. Monitor critical issues, maintenance requests, and system events.
+      Alerts are automatically generated from anomaly detection, maintenance schedules, and system checks.
+    </p>
+  </div>
+</div>
+
+<div class="table-box">
+  <h2>Recent Alerts</h2>
+  <p class="muted">Latest system and machine alerts sorted by timestamp.</p>
+
+  {% if alerts %}
+    <div style="display: grid; gap: 12px; margin-top: 20px;">
+      {% for alert in alerts %}
+        <div class="alert-card {{ alert.severity|lower }}">
+          <div class="alert-header">
+            <span class="alert-machine">{{ alert.machine }}</span>
+            <span class="badge-{{ alert.severity|lower }}">{{ alert.severity }}</span>
+          </div>
+          <div class="alert-message">
+            📋 {{ alert.message }}
+          </div>
+          <div class="alert-meta">
+            🕐 {{ alert.time }} • ID: {{ alert.id }} • Machine: {{ alert.machine_id }}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty-state">
+      <div class="empty-state-icon">✅</div>
+      <h3>No Alerts</h3>
+      <p>All systems are operating normally. No active alerts at this time.</p>
+    </div>
+  {% endif %}
+
+  <div style="margin-top: 30px; padding: 15px; background: #f8fafc; border-left: 4px solid #667eea; border-radius: 4px;">
+    <strong>📊 Alert Hierarchy:</strong><br>
+    <span style="color: #64748b; font-size: 0.9em;">
+      🔴 HIGH: Critical failures requiring immediate action | 
+      🟠 MEDIUM: Anomalies and maintenance needs | 
+      🟢 LOW: Informational notices
+    </span>
+  </div>
+</div>
+
+{% endblock %}

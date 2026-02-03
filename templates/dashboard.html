@@ -125,17 +125,7 @@
 </div>
 
 
-<div class="two-col">
-  <div class="lav-card">
-    <h3>Predictive Anomaly Detection</h3>
-    <div id="anomalyList"></div>
-  </div>
 
-  <div class="lav-card">
-    <h3>Recent Alerts</h3>
-    <div id="alertsList"></div>
-  </div>
-</div>
 
 {% endblock %}
 
@@ -198,39 +188,6 @@ async function loadDashboard(){
       </div>
     `;
     machinesList.appendChild(el);
-  });
-
-  // ---- Predictive ML Anomalies ----
-  anomalyList.innerHTML='';
-  data.ml_anomalies.forEach(a=>{
-    const sev = a.severity === "HIGH" ? "badge badge-high" : "badge badge-medium";
-
-    const el=document.createElement('div');
-    el.className='list-item';
-    el.innerHTML=`
-      <span class="${sev}">${a.severity}</span>
-      <strong>${a.machine}</strong>
-      <div>${a.issue}</div>
-      <small>Machine ID: ${a.machine_id ?? '-'} • Performance ID: ${a.performance_id ?? '-'} • ${a.time}</small>
-    `;
-    el.style.borderLeft="4px solid #F59E0B";
-    anomalyList.appendChild(el);
-  });
-
-  // ---- Recent Alerts ----
-  alertsList.innerHTML='';
-  data.recent_alerts.forEach(a=>{
-    const sev = a.severity === "HIGH" ? "badge badge-high" : "badge badge-medium";
-
-    const el=document.createElement('div');
-    el.className='list-item';
-    el.innerHTML=`
-      <span class="${sev}">${a.severity}</span>
-      <strong>${a.machine}</strong>
-      <div>${a.message}</div>
-      <small>${a.time}</small>
-    `;
-    alertsList.appendChild(el);
   });
 
 }

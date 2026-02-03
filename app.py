@@ -73,18 +73,25 @@ def get_db_connection():
 # -------------------------
 def get_mongo_db():
     """Get MongoDB database connection"""
+    logger = logging.getLogger(__name__)
+    
     if not MONGODB_AVAILABLE:
+        logger.warning("get_mongo_db: MongoDB library not available (MONGODB_AVAILABLE=False)")
         return None
+    
     try:
+        logger.info(f"get_mongo_db: Connecting to {MONGODB_URI}...")
         client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=5000)
         # Verify connection
+        logger.info("get_mongo_db: Pinging admin database...")
         client.admin.command('ping')
+        logger.info(f"get_mongo_db: Successfully connected, returning database {MONGODB_DB}")
         return client[MONGODB_DB]
-    except ServerSelectionTimeoutError:
-        logging.getLogger(__name__).warning("MongoDB connection failed. Make sure MongoDB is running.")
+    except ServerSelectionTimeoutError as e:
+        logger.warning(f"get_mongo_db: Connection timeout - {e}")
         return None
     except Exception as e:
-        logging.getLogger(__name__).warning("MongoDB error: %s", e)
+        logger.warning(f"get_mongo_db: Connection error - {type(e).__name__}: {e}")
         return None
 
 # -------------------------
@@ -622,11 +629,12 @@ def run_ml_scan():
                 except Exception as e:
                     logging.getLogger(__name__).warning("add_alert from scan failed: %s", e)
 
-                if severity == "HIGH":
-                    try:
-                        add_maintenance(mid, f"{mname}: Predicted failure risk - HIGH")
-                    except Exception as e:
-                        logging.getLogger(__name__).warning("add_maintenance from scan failed: %s", e)
+                # Create maintenance for ANY anomaly (HIGH or MEDIUM severity)
+                try:
+                    maintenance_msg = f"{mname}: {severity} severity anomaly detected (score {score:.3f})"
+                    add_maintenance(mid, maintenance_msg)
+                except Exception as e:
+                    logging.getLogger(__name__).warning("add_maintenance from scan failed: %s", e)
                 
                 # Log to MongoDB
                 try:
@@ -927,13 +935,6 @@ def dashboard_data():
         logging.getLogger(__name__).warning("Fetch ml anomalies failed: %s", e)
         ml_anomalies = []
 
-    # close cursor/connection
-    try:
-        cursor.close()
-        conn.close()
-    except Exception:
-        pass
-
     # 7) Maintenance list for dashboard (pending) - dedupe by machine name
     maintenance = []
     try:
@@ -965,6 +966,13 @@ def dashboard_data():
     except Exception as e:
         logging.getLogger(__name__).warning("Fetch maintenance failed: %s", e)
         maintenance = []
+    finally:
+        # close cursor/connection AFTER all queries complete
+        try:
+            cursor.close()
+            conn.close()
+        except Exception:
+            pass
 
     payload = {
         "oee_labels": oee_labels,
@@ -1978,6 +1986,286 @@ def view_anomalies():
     )
 
 # -------------------------
+# Alerts View (from recent_alerts in dashboard_data)
+# -------------------------
+@app.route('/alerts')
+def view_alerts():
+    """View recent alerts"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute(
+            """
+            SELECT 
+                a.AlertID,
+                m.MachineName,
+                a.MachineID,
+                a.AlertMessage,
+                a.Severity,
+                a.Timestamp
+            FROM Alerts a
+            LEFT JOIN Machine m ON a.MachineID = m.MachineID
+            ORDER BY a.Timestamp DESC
+            LIMIT 200
+            """
+        )
+        rows = cursor.fetchall()
+        
+        alerts = []
+        for r in rows:
+            alerts.append(
+                {
+                    "id": r[0],
+                    "machine": r[1] if r[1] else f"Machine {r[2]}",
+                    "machine_id": r[2],
+                    "message": r[3],
+                    "severity": r[4] if r[4] else "MEDIUM",
+                    "time": r[5].strftime("%Y-%m-%d %H:%M:%S") if r[5] else "",
+                }
+            )
+    except Exception as e:
+        logging.getLogger(__name__).warning("Error fetching alerts: %s", e)
+        alerts = []
+    
+    cursor.close()
+    conn.close()
+    return render_template(
+        'alerts.html', alerts=alerts, is_admin=session.get("is_admin", False)
+    )
+
+# -------------------------
+# Maintenance Management Routes
+# -------------------------
+@app.route('/maintenance')
+@login_required
+def view_maintenance():
+    """View all maintenance records"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute(
+            """
+            SELECT ml.MaintenanceID, ml.MachineID, m.MachineName, ml.IssueDescription, ml.Status, ml.MaintenanceDate
+            FROM maintenance_log ml
+            LEFT JOIN Machine m ON ml.MachineID = m.MachineID
+            ORDER BY ml.MaintenanceDate DESC
+            LIMIT 500
+            """
+        )
+        rows = cursor.fetchall()
+        
+        maintenance_records = []
+        for r in rows:
+            maintenance_records.append({
+                "maintenance_id": r[0],
+                "machine_id": r[1],
+                "machine_name": r[2] if r[2] else f"Machine {r[1]}",
+                "issue_description": r[3],
+                "status": r[4],
+                "maintenance_date": r[5],
+            })
+    except Exception as e:
+        logging.getLogger(__name__).warning("Error fetching maintenance: %s", e)
+        maintenance_records = []
+    
+    cursor.close()
+    conn.close()
+    return render_template(
+        'maintenance.html', 
+        maintenance_records=maintenance_records, 
+        is_admin=(session.get('role') == 'admin')
+    )
+
+
+@app.route('/add_maintenance', methods=['GET', 'POST'])
+@admin_required
+def add_maintenance_route():
+    """Add a new maintenance record"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Fetch all machines for dropdown
+    cursor.execute("SELECT MachineID, MachineName FROM Machine ORDER BY MachineName")
+    machines = cursor.fetchall()
+    
+    message = ""
+    if request.method == 'POST':
+        machine_id = int(request.form['machine_id'])
+        issue = request.form['issue'].strip()
+        status = request.form['status']
+        maintenance_date_str = request.form['maintenance_date']
+        
+        try:
+            # Convert datetime-local format to MySQL datetime
+            from datetime import datetime
+            maintenance_date = datetime.fromisoformat(maintenance_date_str)
+            
+            cursor.execute(
+                """
+                INSERT INTO maintenance_log (MachineID, IssueDescription, Status, MaintenanceDate)
+                VALUES (%s, %s, %s, %s)
+                """,
+                (machine_id, issue, status, maintenance_date)
+            )
+            conn.commit()
+            new_id = cursor.lastrowid
+            message = f"✅ Maintenance record added successfully!"
+            
+            # Log to blockchain
+            event = f"ADD_MAINTENANCE|MaintenanceID={new_id}|MachineID={machine_id}|Issue={issue}|Status={status}|By={session.get('admin_name','admin')}"
+            log_machine_event(event)
+            
+            cursor.close()
+            conn.close()
+            flash(message, "success")
+            return redirect(url_for('view_maintenance'))
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"Error adding maintenance: {e}")
+            message = f"❌ Error: {str(e)}"
+    
+    cursor.close()
+    conn.close()
+    return render_template('add_maintenance.html', machines=machines, message=message, is_admin=True)
+
+
+@app.route('/modify_maintenance/<int:mid>', methods=['GET', 'POST'])
+@admin_required
+def modify_maintenance(mid):
+    """Edit a maintenance record"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Fetch the maintenance record
+    cursor.execute(
+        """
+        SELECT MaintenanceID, MachineID, IssueDescription, Status, MaintenanceDate
+        FROM maintenance_log
+        WHERE MaintenanceID = %s
+        """,
+        (mid,)
+    )
+    maintenance = cursor.fetchone()
+    
+    if not maintenance:
+        cursor.close()
+        conn.close()
+        flash("Maintenance record not found.", "error")
+        return redirect(url_for('view_maintenance'))
+    
+    # Fetch all machines for dropdown
+    cursor.execute("SELECT MachineID, MachineName FROM Machine ORDER BY MachineName")
+    machines = cursor.fetchall()
+    
+    if request.method == 'POST':
+        machine_id = int(request.form['machine_id'])
+        issue = request.form['issue'].strip()
+        status = request.form['status']
+        maintenance_date_str = request.form['maintenance_date']
+        override = request.form.get('override_password', '')
+        
+        if override != MASTER_OVERRIDE:
+            cursor.close()
+            conn.close()
+            return render_template(
+                'modify_maintenance.html',
+                maintenance={
+                    "maintenance_id": maintenance[0],
+                    "machine_id": maintenance[1],
+                    "issue_description": maintenance[2],
+                    "status": maintenance[3],
+                    "maintenance_date": maintenance[4],
+                },
+                machines=machines,
+                message="❌ Wrong override password",
+                is_admin=True,
+            )
+        
+        try:
+            from datetime import datetime
+            maintenance_date = datetime.fromisoformat(maintenance_date_str)
+            
+            cursor.execute(
+                """
+                UPDATE maintenance_log
+                SET MachineID = %s, IssueDescription = %s, Status = %s, MaintenanceDate = %s
+                WHERE MaintenanceID = %s
+                """,
+                (machine_id, issue, status, maintenance_date, mid)
+            )
+            conn.commit()
+            
+            # Log to blockchain
+            event = f"UPDATE_MAINTENANCE|MaintenanceID={mid}|MachineID={machine_id}|Issue={issue}|Status={status}|By={session.get('admin_name','admin')}"
+            log_machine_event(event)
+            
+            cursor.close()
+            conn.close()
+            flash("✅ Maintenance record updated successfully!", "success")
+            return redirect(url_for('view_maintenance'))
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"Error updating maintenance: {e}")
+            message = f"❌ Error: {str(e)}"
+            cursor.close()
+            conn.close()
+            return render_template(
+                'modify_maintenance.html',
+                maintenance={
+                    "maintenance_id": maintenance[0],
+                    "machine_id": maintenance[1],
+                    "issue_description": maintenance[2],
+                    "status": maintenance[3],
+                    "maintenance_date": maintenance[4],
+                },
+                machines=machines,
+                message=message,
+                is_admin=True,
+            )
+    
+    cursor.close()
+    conn.close()
+    return render_template(
+        'modify_maintenance.html',
+        maintenance={
+            "maintenance_id": maintenance[0],
+            "machine_id": maintenance[1],
+            "issue_description": maintenance[2],
+            "status": maintenance[3],
+            "maintenance_date": maintenance[4],
+        },
+        machines=machines,
+        message="",
+        is_admin=True,
+    )
+
+
+@app.route('/delete_maintenance/<int:mid>', methods=['POST'])
+@admin_required
+def delete_maintenance(mid):
+    """Delete a maintenance record"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute("DELETE FROM maintenance_log WHERE MaintenanceID = %s", (mid,))
+        conn.commit()
+        
+        # Log to blockchain
+        event = f"DELETE_MAINTENANCE|MaintenanceID={mid}|By={session.get('admin_name','admin')}"
+        log_machine_event(event)
+        
+        flash("✅ Maintenance record deleted successfully!", "success")
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"Error deleting maintenance: {e}")
+        flash(f"❌ Error deleting maintenance: {str(e)}", "error")
+    finally:
+        cursor.close()
+        conn.close()
+    
+    return redirect(url_for('view_maintenance'))
+
+# -------------------------
 # MongoDB Audit Log Routes
 # -------------------------
 @app.route('/audit_logs')
@@ -2036,16 +2324,37 @@ def test_mongo_connection():
 def mongodb_stats():
     """View MongoDB statistics and collection info"""
     try:
+        # Add debug logging
+        logger = logging.getLogger(__name__)
+        logger.info("mongodb_stats: Attempting connection...")
+        
         db = get_mongo_db()
+        connection_status = "🟢 Connected" if db is not None else "🔴 Disconnected"
+        
+        logger.info(f"mongodb_stats: Connection status = {connection_status}")
+        
         if db is None:
-            flash("MongoDB not available", "warning")
-            return render_template('mongodb_stats.html', stats={}, collections={})
+            logger.warning("mongodb_stats: Connection failed, rendering error page")
+            stats = {
+                'mongodb_uri': MONGODB_URI,
+                'database': MONGODB_DB,
+                'connection_status': connection_status,
+                'error': 'MongoDB is not running or connection failed'
+            }
+            return render_template('mongodb_stats.html', stats=stats, collections={})
         
         # Get collection stats
         collections_info = {}
+        total_documents = 0
+        
+        # Get all collections in the database
+        all_collections = db.list_collection_names()
+        
+        # Show specific collections if they exist
         for coll_name in ['anomaly_logs', 'audit_logs', 'scan_sessions']:
             collection = db[coll_name]
             count = collection.count_documents({})
+            total_documents += count
             collections_info[coll_name] = {
                 'count': count,
                 'latest': None
@@ -2056,17 +2365,38 @@ def mongodb_stats():
             if latest:
                 collections_info[coll_name]['latest'] = latest['timestamp'].strftime("%Y-%m-%d %H:%M:%S") if latest.get('timestamp') else ""
         
+        # Mask the URI password if it exists
+        masked_uri = MONGODB_URI
+        if '@' in MONGODB_URI:
+            try:
+                parts = MONGODB_URI.split('@')
+                scheme_user = parts[0]
+                if '://' in scheme_user:
+                    scheme, credentials = scheme_user.split('://', 1)
+                    if ':' in credentials:
+                        user = credentials.split(':')[0]
+                        masked_uri = f"{scheme}://{user}:***@{parts[1]}"
+            except:
+                pass
+        
         stats = {
-            'mongodb_uri': MONGODB_URI.replace(MONGODB_URI.split('@')[0].split('://')[1], '***') if '@' in MONGODB_URI else MONGODB_URI,
+            'mongodb_uri': masked_uri,
             'database': MONGODB_DB,
-            'collections': collections_info
+            'connection_status': connection_status,
+            'all_collections': len(all_collections),
+            'total_documents': total_documents
         }
         
         return render_template('mongodb_stats.html', stats=stats, collections=collections_info)
     except Exception as e:
         logging.getLogger(__name__).warning("mongodb_stats error: %s", e)
-        flash("Error loading MongoDB stats", "error")
-        return render_template('mongodb_stats.html', stats={}, collections={})
+        stats = {
+            'mongodb_uri': MONGODB_URI,
+            'database': MONGODB_DB,
+            'connection_status': '🔴 Error',
+            'error': str(e)
+        }
+        return render_template('mongodb_stats.html', stats=stats, collections={})
 
 # -------------------------
 # Run server

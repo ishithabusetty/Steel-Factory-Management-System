@@ -1,0 +1,58 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container mt-5" style="max-width: 600px;">
+    <h1 class="mb-4">➕ Add Maintenance Record</h1>
+
+    {% if message %}
+    <div class="alert alert-info">{{ message }}</div>
+    {% endif %}
+
+    <form method="POST" class="card p-4">
+        <div class="mb-3">
+            <label for="machine_id" class="form-label"><strong>Machine</strong></label>
+            <select class="form-control" id="machine_id" name="machine_id" required>
+                <option value="">-- Select Machine --</option>
+                {% for mid, mname in machines %}
+                <option value="{{ mid }}">{{ mname }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="mb-3">
+            <label for="issue" class="form-label"><strong>Issue Description</strong></label>
+            <textarea class="form-control" id="issue" name="issue" rows="4" placeholder="Describe the maintenance issue..." required></textarea>
+        </div>
+
+        <div class="mb-3">
+            <label for="status" class="form-label"><strong>Status</strong></label>
+            <select class="form-control" id="status" name="status" required>
+                <option value="PENDING">🟡 PENDING</option>
+                <option value="SCHEDULED">🔵 SCHEDULED</option>
+                <option value="ACTIVE">🔴 ACTIVE</option>
+                <option value="COMPLETED">✅ COMPLETED</option>
+            </select>
+        </div>
+
+        <div class="mb-3">
+            <label for="maintenance_date" class="form-label"><strong>Maintenance Date</strong></label>
+            <input type="datetime-local" class="form-control" id="maintenance_date" name="maintenance_date" required>
+        </div>
+
+        <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+            <a href="{{ url_for('view_maintenance') }}" class="btn btn-secondary">Cancel</a>
+            <button type="submit" class="btn btn-success">✅ Add Maintenance</button>
+        </div>
+    </form>
+</div>
+
+<style>
+    .card {
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    form {
+        background-color: #f9f9f9;
+    }
+</style>
+{% endblock %}

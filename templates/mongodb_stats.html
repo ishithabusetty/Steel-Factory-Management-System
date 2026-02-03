@@ -7,13 +7,24 @@
 
     <div style="background-color: #e8f4f8; padding: 20px; border-radius: 5px; margin-top: 20px;">
         <h3>Connection Info</h3>
+        <p><strong>Status:</strong> <span style="font-weight: bold;">{{ stats.connection_status if stats.connection_status else 'Unknown' }}</span></p>
         <p><strong>Database:</strong> {{ stats.database }}</p>
         <p><strong>URI:</strong> <code>{{ stats.mongodb_uri }}</code></p>
+        
+        {% if stats.error %}
+            <div style="background-color: #ffe6e6; padding: 10px; border-radius: 3px; margin-top: 10px; color: #cc0000;">
+                <strong>⚠️ Connection Error:</strong> {{ stats.error }}
+            </div>
+        {% endif %}
+        
+        {% if stats.all_collections %}
+            <p style="margin-top: 10px; color: #666;"><strong>Collections Found:</strong> {{ stats.all_collections }} | <strong>Total Documents:</strong> {{ stats.total_documents }}</p>
+        {% endif %}
     </div>
 
     <h3 style="margin-top: 30px;">Collections Overview</h3>
     
-    {% if collections %}
+    {% if collections and (collections.anomaly_logs.count > 0 or collections.audit_logs.count > 0 or collections.scan_sessions.count > 0) %}
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-top: 20px;">
             
             <!-- Anomaly Logs -->
@@ -54,7 +65,22 @@
         </div>
     {% else %}
         <div style="background-color: #f9f9f9; padding: 20px; border-radius: 5px; margin-top: 20px; color: #666;">
-            <p>No collections available. Run a scan or perform actions to populate the database.</p>
+            {% if not stats.connection_status or '🔴' in stats.connection_status %}
+                <p style="color: #cc0000; font-weight: bold;">⚠️ MongoDB Connection Failed</p>
+                <p>Make sure MongoDB is running. You can:</p>
+                <ul>
+                    <li>Start MongoDB: <code>mongod</code> (on Windows: check Services or use MongoDB Compass)</li>
+                    <li>Verify URI in .env: <code>MONGODB_URI=mongodb://localhost:27017</code></li>
+                    <li>Check if MongoDB is accessible at the configured URI</li>
+                </ul>
+            {% else %}
+                <p>No collections available. Run a scan or perform actions to populate the database.</p>
+                <p style="font-size: 0.9em; color: #999; margin-top: 10px;">Try:</p>
+                <ul style="font-size: 0.9em;">
+                    <li><a href="{{ url_for('dashboard') }}">Run an anomaly scan from the Dashboard</a></li>
+                    <li><a href="{{ url_for('add_performance') }}">Add performance data</a></li>
+                </ul>
+            {% endif %}
         </div>
     {% endif %}
 
@@ -93,6 +119,7 @@
         padding: 2px 6px;
         border-radius: 3px;
         font-family: monospace;
+        font-size: 0.9em;
     }
     
     a {
@@ -102,6 +129,14 @@
     
     a:hover {
         text-decoration: underline;
+    }
+    
+    ul {
+        margin-left: 20px;
+    }
+    
+    li {
+        margin: 5px 0;
     }
 </style>
 {% endblock %}
